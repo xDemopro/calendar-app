@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Text } from 'react-native';
@@ -6,12 +7,14 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { Screen } from '@/components/Screen';
 import { joinFamilyByCode } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { space, type } from '@/theme/tokens';
 
 export default function JoinFamilyScreen() {
   const router = useRouter();
   const t = useThemeColors();
+  const qc = useQueryClient();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +29,7 @@ export default function JoinFamilyScreen() {
     setError(null);
     try {
       const family = await joinFamilyByCode(clean);
+      qc.invalidateQueries({ queryKey: qk.families() });
       router.replace({ pathname: '/(app)/family/[id]', params: { id: family.id } });
     } catch (e: any) {
       setError(e.message ?? 'Invalid code');

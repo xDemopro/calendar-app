@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -20,30 +21,25 @@ import {
   listAttachments,
   type Attachment,
 } from '@/lib/attachments';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
 export function AttachmentsSection({ familyId, eventId }: { familyId: string; eventId: string }) {
   const router = useRouter();
   const t = useThemeColors();
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+  const { data: attachments = [], isLoading: loading } = useQuery({
+    queryKey: qk.attachments(eventId),
+    queryFn: () => listAttachments(eventId),
+  });
+  // unused but reserved for future use
+  void familyId;
 
-  async function refresh() {
-    setLoading(true);
-    try {
-      setAttachments(await listAttachments(eventId));
-    } catch (e: any) {
-      Alert.alert('Failed', e.message ?? 'Could not load attachments');
-    } finally {
-      setLoading(false);
-    }
+  function refresh() {
+    qc.invalidateQueries({ queryKey: qk.attachments(eventId) });
   }
 
   function handleAdd() {
@@ -62,7 +58,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
           setBusy(true);
           try {
             const att = await addPictureFromLibrary(eventId);
-            if (att) await refresh();
+            if (att) refresh();
           } catch (e: any) {
             Alert.alert('Upload failed', e.message);
           } finally {
@@ -76,7 +72,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
           setBusy(true);
           try {
             const att = await addFileFromDocuments(eventId);
-            if (att) await refresh();
+            if (att) refresh();
           } catch (e: any) {
             Alert.alert('Upload failed', e.message);
           } finally {
@@ -93,6 +89,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
     if (att.kind === 'note') {
       actions.push({
         title: 'Edit',
+        icon: 'edit-2',
         onPress: () =>
           router.push({
             pathname: '/(app)/family/[id]/event/[eventId]/note',
@@ -102,6 +99,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
     }
     actions.push({
       title: 'Delete',
+      icon: 'trash-2',
       destructive: true,
       onPress: () =>
         Alert.alert('Delete this?', undefined, [
@@ -112,7 +110,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
             onPress: async () => {
               try {
                 await deleteAttachment(att);
-                await refresh();
+                refresh();
               } catch (e: any) {
                 Alert.alert('Failed', e.message);
               }

@@ -1,8 +1,9 @@
 import { Feather } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -15,8 +16,8 @@ import {
 import { Button } from '@/components/Button';
 import { FamilyAvatar } from '@/components/FamilyAvatar';
 import { Screen } from '@/components/Screen';
-import type { Family } from '@/lib/database.types';
 import { getFamily } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
@@ -26,26 +27,13 @@ export default function InviteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const t = useThemeColors();
-  const [family, setFamily] = useState<Family | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: family, isLoading: loading } = useQuery({
+    queryKey: qk.family(id ?? ''),
+    queryFn: () => getFamily(id!),
+    enabled: !!id,
+  });
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    if (!id) return;
-    (async () => {
-      try {
-        const f = await getFamily(id);
-        if (alive) setFamily(f);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [id]);
 
   if (loading) {
     return (

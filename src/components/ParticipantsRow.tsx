@@ -1,39 +1,24 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ContextMenu } from './ContextMenu';
 import { UserAvatar } from './UserAvatar';
-import {
-  listEventParticipants,
-  removeEventParticipant,
-  type ParticipantWithProfile,
-} from '@/lib/queries';
+import { useRemoveParticipantMutation } from '@/lib/mutations';
+import { listEventParticipants, type ParticipantWithProfile } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { space, type } from '@/theme/tokens';
 
 export function ParticipantsRow({ familyId, eventId }: { familyId: string; eventId: string }) {
   const router = useRouter();
   const t = useThemeColors();
-  const [participants, setParticipants] = useState<ParticipantWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const remove = useRemoveParticipantMutation(eventId);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setParticipants(await listEventParticipants(eventId));
-    } catch (e: any) {
-      Alert.alert('Failed', e.message ?? 'Could not load participants');
-    } finally {
-      setLoading(false);
-    }
-  }, [eventId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const { data: participants = [], isFetching: loading } = useQuery({
+    queryKey: qk.participants(eventId),
+    queryFn: () => listEventParticipants(eventId),
+  });
 
   function actionsFor(p: ParticipantWithProfile) {
     return [
@@ -45,14 +30,10 @@ export function ParticipantsRow({ familyId, eventId }: { familyId: string; event
       {
         title: 'Remove from event',
         destructive: true,
-        onPress: async () => {
-          try {
-            await removeEventParticipant(eventId, p.user_id);
-            await load();
-          } catch (e: any) {
-            Alert.alert('Failed', e.message);
-          }
-        },
+        onPress: () =>
+          remove.mutate(p.user_id, {
+            onError: (e: any) => Alert.alert('Failed', e.message),
+          }),
       },
     ];
   }

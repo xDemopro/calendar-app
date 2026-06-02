@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +20,7 @@ import { FamilyAvatar } from '@/components/FamilyAvatar';
 import { useUser } from '@/lib/auth';
 import type { Family } from '@/lib/database.types';
 import { deleteFamily, leaveFamily, listMyFamilies } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
@@ -26,25 +28,13 @@ export default function FamiliesScreen() {
   const router = useRouter();
   const user = useUser();
   const t = useThemeColors();
-  const [families, setFamilies] = useState<Family[] | null>(null);
+  const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await listMyFamilies();
-      setFamilies(data);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load');
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const { data: families, error } = useQuery({
+    queryKey: qk.families(),
+    queryFn: listMyFamilies,
+  });
 
   function actionsFor(family: Family): { actions: ContextMenuAction[]; subtitle: string } {
     const isOwner = user?.id === family.created_by;
@@ -82,7 +72,7 @@ export default function FamiliesScreen() {
                 onPress: async () => {
                   try {
                     await deleteFamily(family.id);
-                    await load();
+                    qc.invalidateQueries({ queryKey: qk.families() });
                   } catch (e: any) {
                     Alert.alert('Failed', e.message);
                   }
@@ -106,7 +96,7 @@ export default function FamiliesScreen() {
                 try {
                   if (!user) return;
                   await leaveFamily(family.id, user.id);
-                  await load();
+                  qc.invalidateQueries({ queryKey: qk.families() });
                 } catch (e: any) {
                   Alert.alert('Failed', e.message);
                 }
@@ -155,7 +145,7 @@ export default function FamiliesScreen() {
         </View>
       </View>
 
-      {families === null ? (
+      {families === undefined ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={t.accent} />
         </View>
@@ -170,13 +160,13 @@ export default function FamiliesScreen() {
               refreshing={refreshing}
               onRefresh={async () => {
                 setRefreshing(true);
-                await load();
+                await qc.invalidateQueries({ queryKey: qk.families() });
                 setRefreshing(false);
               }}
             />
           }
           ListHeaderComponent={
-            error ? <Text style={[type.footnote, { color: t.danger, marginBottom: space.md }]}>{error}</Text> : null
+            error ? <Text style={[type.footnote, { color: t.danger, marginBottom: space.md }]}>{(error as Error).message}</Text> : null
           }
           ListEmptyComponent={
             <View style={{ alignItems: 'center', gap: space.md, paddingVertical: space.xxl }}>

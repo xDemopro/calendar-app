@@ -1,35 +1,23 @@
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/components/Screen';
 import { UserAvatar } from '@/components/UserAvatar';
-import type { Profile } from '@/lib/database.types';
 import { getProfile } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { space, type } from '@/theme/tokens';
 
 export default function ProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const t = useThemeColors();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let alive = true;
-    if (!userId) return;
-    (async () => {
-      try {
-        const p = await getProfile(userId);
-        if (alive) setProfile(p);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [userId]);
+  const { data: profile, isLoading: loading } = useQuery({
+    queryKey: qk.profile(userId ?? ''),
+    queryFn: () => getProfile(userId!),
+    enabled: !!userId,
+  });
 
   if (loading) {
     return (

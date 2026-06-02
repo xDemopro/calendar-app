@@ -5,7 +5,7 @@ import { Text } from 'react-native';
 import { Button } from '@/components/Button';
 import { EventForm, type EventFormValues } from '@/components/EventForm';
 import { Screen } from '@/components/Screen';
-import { createEvent } from '@/lib/queries';
+import { useCreateEventMutation } from '@/lib/mutations';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { space, type } from '@/theme/tokens';
 
@@ -13,6 +13,7 @@ export default function NewEventScreen() {
   const { id, date } = useLocalSearchParams<{ id: string; date?: string }>();
   const router = useRouter();
   const t = useThemeColors();
+  const createEvent = useCreateEventMutation(id ?? '');
 
   const initial = useMemo<EventFormValues>(() => {
     const start = new Date();
@@ -33,7 +34,6 @@ export default function NewEventScreen() {
   }, [date]);
 
   const valuesRef = useRef<EventFormValues>(initial);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleCreate() {
@@ -46,10 +46,9 @@ export default function NewEventScreen() {
       setError('End must be after start');
       return;
     }
-    setLoading(true);
     setError(null);
-    try {
-      await createEvent({
+    createEvent.mutate(
+      {
         family_id: id!,
         title: v.title.trim(),
         description: v.description.trim() || null,
@@ -57,13 +56,12 @@ export default function NewEventScreen() {
         starts_at: v.starts_at.toISOString(),
         ends_at: v.ends_at.toISOString(),
         all_day: v.all_day,
-      });
-      router.back();
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to create event');
-    } finally {
-      setLoading(false);
-    }
+      },
+      {
+        onSuccess: () => router.back(),
+        onError: (e: any) => setError(e.message ?? 'Failed to create event'),
+      },
+    );
   }
 
   return (
@@ -76,7 +74,7 @@ export default function NewEventScreen() {
         }}
       />
       {error ? <Text style={[type.footnote, { color: t.danger }]}>{error}</Text> : null}
-      <Button title="Create event" onPress={handleCreate} loading={loading} style={{ marginTop: space.md }} />
+      <Button title="Create event" onPress={handleCreate} loading={createEvent.isPending} style={{ marginTop: space.md }} />
     </Screen>
   );
 }

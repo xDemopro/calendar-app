@@ -1,6 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import { addMonths, format, isSameDay, isSameMonth, parseISO, startOfDay } from 'date-fns';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -17,6 +18,7 @@ import {
 import { UserAvatar } from './UserAvatar';
 import { barBgForEvent, colorForEvent } from '@/lib/eventColor';
 import { listEventsWithParticipants, type EventWithParticipants } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { FONT_FAMILY_BY_WEIGHT, radius, space, type } from '@/theme/tokens';
 
@@ -190,23 +192,14 @@ function MonthHeader({ month }: { month: Date }) {
 
 function MonthPage({ familyId, month }: { familyId: string; month: Date }) {
   const t = useThemeColors();
-  const [events, setEvents] = useState<EventWithParticipants[] | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const gridStart = monthGridStart(month);
-    const gridEnd = addDays(gridStart, 42);
-    listEventsWithParticipants(familyId, gridStart.toISOString(), gridEnd.toISOString())
-      .then((evs) => {
-        if (alive) setEvents(evs);
-      })
-      .catch(() => {
-        if (alive) setEvents([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [familyId, month]);
+  const gridStart = monthGridStart(month);
+  const gridEnd = addDays(gridStart, 42);
+  const fromIso = gridStart.toISOString();
+  const toIso = gridEnd.toISOString();
+  const { data: events } = useQuery({
+    queryKey: qk.eventsWithParticipants(familyId, fromIso, toIso),
+    queryFn: () => listEventsWithParticipants(familyId, fromIso, toIso),
+  });
 
   const weeks = useMemo(() => {
     const start = monthGridStart(month);

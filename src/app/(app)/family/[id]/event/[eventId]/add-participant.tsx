@@ -1,5 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,13 +12,12 @@ import {
 
 import { Screen } from '@/components/Screen';
 import { UserAvatar } from '@/components/UserAvatar';
+import { useAddParticipantMutation } from '@/lib/mutations';
 import {
-  addEventParticipant,
   listEventParticipants,
   listFamilyMembers,
-  type FamilyMemberWithProfile,
-  type ParticipantWithProfile,
 } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
@@ -25,48 +25,29 @@ export default function AddParticipantScreen() {
   const { id: familyId, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const router = useRouter();
   const t = useThemeColors();
+  const add = useAddParticipantMutation(eventId ?? '');
 
-  const [members, setMembers] = useState<FamilyMemberWithProfile[]>([]);
-  const [participants, setParticipants] = useState<ParticipantWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  async function refresh() {
-    if (!familyId || !eventId) return;
-    setLoading(true);
-    try {
-      const [m, p] = await Promise.all([
-        listFamilyMembers(familyId),
-        listEventParticipants(eventId),
-      ]);
-      setMembers(m);
-      setParticipants(p);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyId, eventId]);
+  const { data: members = [], isLoading: loadingMembers } = useQuery({
+    queryKey: qk.familyMembers(familyId ?? ''),
+    queryFn: () => listFamilyMembers(familyId!),
+    enabled: !!familyId,
+  });
+  const { data: participants = [], isLoading: loadingParticipants } = useQuery({
+    queryKey: qk.participants(eventId ?? ''),
+    queryFn: () => listEventParticipants(eventId!),
+    enabled: !!eventId,
+  });
+  const loading = loadingMembers || loadingParticipants;
 
   const candidates = useMemo(() => {
     const taken = new Set(participants.map((p) => p.user_id));
     return members.filter((m) => !taken.has(m.user_id));
   }, [members, participants]);
 
-  async function handleAdd(userId: string) {
-    if (!eventId) return;
-    setBusy(userId);
-    try {
-      await addEventParticipant(eventId, userId);
-      await refresh();
-    } catch (e: any) {
-      Alert.alert('Failed', e.message);
-    } finally {
-      setBusy(null);
-    }
+  function handleAdd(userId: string) {
+    add.mutate(userId, {
+      onError: (e: any) => Alert.alert('Failed', e.message),
+    });
   }
 
   if (loading) {
@@ -92,7 +73,6 @@ export default function AddParticipantScreen() {
             <Pressable
               key={m.user_id}
               onPress={() => handleAdd(m.user_id)}
-              disabled={busy === m.user_id}
               style={({ pressed }) => [
                 styles.row,
                 { backgroundColor: t.bgRaised, borderColor: t.border },
@@ -106,11 +86,7 @@ export default function AddParticipantScreen() {
                 </Text>
                 <Text style={[type.caption, { color: t.fgLow }]}>{m.role}</Text>
               </View>
-              {busy === m.user_id ? (
-                <ActivityIndicator color={t.accent} />
-              ) : (
-                <Text style={[type.callout, { color: t.accent }]}>Add</Text>
-              )}
+              <Text style={[type.callout, { color: t.accent }]}>Add</Text>
             </Pressable>
           ))
         )}

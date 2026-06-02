@@ -1,39 +1,26 @@
+import { useQuery } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { ParticipantsRow } from '@/components/ParticipantsRow';
 import { Screen } from '@/components/Screen';
-import type { EventRow } from '@/lib/database.types';
 import { colorForEvent } from '@/lib/eventColor';
 import { getEvent } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
 export default function EventDetailScreen() {
   const { id, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const t = useThemeColors();
-  const [event, setEvent] = useState<EventRow | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    if (!eventId) return;
-    setLoading(true);
-    try {
-      const e = await getEvent(eventId);
-      setEvent(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [eventId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const { data: event, isLoading: loading } = useQuery({
+    queryKey: qk.event(eventId ?? ''),
+    queryFn: () => getEvent(eventId!),
+    enabled: !!eventId,
+  });
 
   if (loading) {
     return (

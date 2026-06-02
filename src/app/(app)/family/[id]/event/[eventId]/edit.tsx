@@ -1,38 +1,32 @@
+import { useQuery } from '@tanstack/react-query';
 import { parseISO } from 'date-fns';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Text } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { EventForm, type EventFormValues } from '@/components/EventForm';
 import { Screen } from '@/components/Screen';
-import type { EventRow } from '@/lib/database.types';
-import { getEvent, updateEvent } from '@/lib/queries';
+import { useUpdateEventMutation } from '@/lib/mutations';
+import { getEvent } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { space, type } from '@/theme/tokens';
 
 export default function EditEventScreen() {
-  const { eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
+  const { id: familyId, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const router = useRouter();
   const t = useThemeColors();
+  const updateEvent = useUpdateEventMutation(familyId ?? '');
 
-  const [event, setEvent] = useState<EventRow | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { data: event, isLoading: loading } = useQuery({
+    queryKey: qk.event(eventId ?? ''),
+    queryFn: () => getEvent(eventId!),
+    enabled: !!eventId,
+  });
+
   const [error, setError] = useState<string | null>(null);
   const valuesRef = useRef<EventFormValues | null>(null);
-
-  useEffect(() => {
-    if (!eventId) return;
-    (async () => {
-      try {
-        const e = await getEvent(eventId);
-        setEvent(e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [eventId]);
 
   async function handleSave() {
     const v = valuesRef.current;
@@ -41,23 +35,24 @@ export default function EditEventScreen() {
       setError('Title is required');
       return;
     }
-    setSaving(true);
     setError(null);
-    try {
-      await updateEvent(event.id, {
-        title: v.title.trim(),
-        description: v.description.trim() || null,
-        location: v.location.trim() || null,
-        starts_at: v.starts_at.toISOString(),
-        ends_at: v.ends_at.toISOString(),
-        all_day: v.all_day,
-      });
-      router.back();
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
+    updateEvent.mutate(
+      {
+        id: event.id,
+        patch: {
+          title: v.title.trim(),
+          description: v.description.trim() || null,
+          location: v.location.trim() || null,
+          starts_at: v.starts_at.toISOString(),
+          ends_at: v.ends_at.toISOString(),
+          all_day: v.all_day,
+        },
+      },
+      {
+        onSuccess: () => router.back(),
+        onError: (e: any) => setError(e.message ?? 'Failed to save'),
+      },
+    );
   }
 
   if (loading || !event) {
@@ -91,7 +86,7 @@ export default function EditEventScreen() {
         }}
       />
       {error ? <Text style={[type.footnote, { color: t.danger }]}>{error}</Text> : null}
-      <Button title="Save" onPress={handleSave} loading={saving} style={{ marginTop: space.md }} />
+      <Button title="Save" onPress={handleSave} loading={updateEvent.isPending} style={{ marginTop: space.md }} />
       <Button title="Cancel" variant="ghost" onPress={() => router.back()} />
     </Screen>
   );

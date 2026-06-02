@@ -1,6 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import { format, parseISO, startOfDay } from 'date-fns';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,14 +18,15 @@ import { ContextMenu, type ContextMenuAction } from '@/components/ContextMenu';
 import { FamilyAvatar } from '@/components/FamilyAvatar';
 import { Screen } from '@/components/Screen';
 import { UserAvatar } from '@/components/UserAvatar';
-import type { Family } from '@/lib/database.types';
 import { colorForEvent } from '@/lib/eventColor';
+import { useDeleteEventMutation } from '@/lib/mutations';
 import {
-  deleteEvent,
   getFamily,
   listEventsWithParticipants,
   type EventWithParticipants,
 } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
+import { useFamilyRealtime } from '@/lib/realtime';
 import { useCalendarViewMode } from '@/lib/viewMode';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { FONT_FAMILY_BY_WEIGHT, radius, space, type } from '@/theme/tokens';
@@ -61,34 +63,26 @@ export default function FamilyCalendarScreen() {
   const t = useThemeColors();
   const { mode: viewMode, setMode: setViewMode } = useCalendarViewMode();
 
-  const [family, setFamily] = useState<Family | null>(null);
-  const [events, setEvents] = useState<EventWithParticipants[]>([]);
-  const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [referenceMonth] = useState<Date>(new Date());
   const [selected, setSelected] = useState<string>(todayKey());
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      setLoading(true);
-      const { from, to } = monthBounds(month);
-      const [fam, evs] = await Promise.all([
-        getFamily(id),
-        listEventsWithParticipants(id, from, to),
-      ]);
-      setFamily(fam);
-      setEvents(evs);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, month]);
+  useFamilyRealtime(id);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const { data: family } = useQuery({
+    queryKey: qk.family(id ?? ''),
+    queryFn: () => getFamily(id!),
+    enabled: !!id,
+  });
+
+  const { from, to } = monthBounds(month);
+  const { data: events = [], isFetching: loading } = useQuery({
+    queryKey: qk.eventsWithParticipants(id ?? '', from, to),
+    queryFn: () => listEventsWithParticipants(id!, from, to),
+    enabled: !!id,
+  });
+
+  const deleteEventMut = useDeleteEventMutation(id ?? '');
 
   const marked = useMemo(() => {
     const dotsByDay = new Map<string, { key: string; color: string }[]>();
@@ -275,13 +269,10 @@ export default function FamilyCalendarScreen() {
                       {
                         text: 'Delete',
                         style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await deleteEvent(e.id);
-                            await load();
-                          } catch (err: any) {
-                            Alert.alert('Failed', err.message);
-                          }
+                        onPress: () => {
+                          deleteEventMut.mutate(e.id, {
+                            onError: (err: any) => Alert.alert('Failed', err.message),
+                          });
                         },
                       },
                     ]),

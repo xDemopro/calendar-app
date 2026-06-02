@@ -1,5 +1,6 @@
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +16,6 @@ import { Input } from '@/components/Input';
 import { Screen } from '@/components/Screen';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useUser } from '@/lib/auth';
-import type { Family } from '@/lib/database.types';
 import {
   clearFamilyAvatar,
   getFamily,
@@ -25,6 +25,7 @@ import {
   renameFamily,
   type FamilyMemberWithProfile,
 } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
@@ -33,33 +34,27 @@ export default function EditFamilyScreen() {
   const router = useRouter();
   const user = useUser();
   const t = useThemeColors();
+  const qc = useQueryClient();
 
-  const [family, setFamily] = useState<Family | null>(null);
-  const [members, setMembers] = useState<FamilyMemberWithProfile[]>([]);
+  const { data: family, isLoading: famLoading } = useQuery({
+    queryKey: qk.family(id ?? ''),
+    queryFn: () => getFamily(id!),
+    enabled: !!id,
+  });
+  const { data: members = [] } = useQuery({
+    queryKey: qk.familyMembers(id ?? ''),
+    queryFn: () => listFamilyMembers(id!),
+    enabled: !!id,
+  });
+
   const [name, setName] = useState('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    try {
-      const [fam, mems] = await Promise.all([getFamily(id), listFamilyMembers(id)]);
-      setFamily(fam);
-      setMembers(mems);
-      setName(fam?.name ?? '');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  useEffect(() => {
+    if (family) setName(family.name);
+  }, [family]);
 
   const isOwner = !!family && !!user && family.created_by === user.id;
 
@@ -73,8 +68,9 @@ export default function EditFamilyScreen() {
     setSaving(true);
     setError(null);
     try {
-      const updated = await renameFamily(family.id, trimmed);
-      setFamily(updated);
+      await renameFamily(family.id, trimmed);
+      qc.invalidateQueries({ queryKey: qk.family(family.id) });
+      qc.invalidateQueries({ queryKey: qk.families() });
     } catch (e: any) {
       setError(e.message ?? 'Failed to rename');
     } finally {
@@ -86,8 +82,9 @@ export default function EditFamilyScreen() {
     if (!family) return;
     setAvatarBusy(true);
     try {
-      const updated = await pickAndUploadFamilyAvatar(family.id);
-      setFamily(updated);
+      await pickAndUploadFamilyAvatar(family.id);
+      qc.invalidateQueries({ queryKey: qk.family(family.id) });
+      qc.invalidateQueries({ queryKey: qk.families() });
     } catch (e: any) {
       if (e.message !== 'cancelled') Alert.alert('Could not update photo', e.message);
     } finally {
@@ -107,8 +104,9 @@ export default function EditFamilyScreen() {
         onPress: async () => {
           setAvatarBusy(true);
           try {
-            const updated = await clearFamilyAvatar(family.id);
-            setFamily(updated);
+            await clearFamilyAvatar(family.id);
+            qc.invalidateQueries({ queryKey: qk.family(family.id) });
+            qc.invalidateQueries({ queryKey: qk.families() });
           } catch (e: any) {
             Alert.alert('Failed', e.message);
           } finally {
@@ -134,7 +132,7 @@ export default function EditFamilyScreen() {
           onPress: async () => {
             try {
               await kickMember(family.id, member.user_id);
-              await load();
+              qc.invalidateQueries({ queryKey: qk.familyMembers(family.id) });
             } catch (e: any) {
               Alert.alert('Failed', e.message);
             }
@@ -144,7 +142,7 @@ export default function EditFamilyScreen() {
     );
   }
 
-  if (loading || !family) {
+  if (famLoading || !family) {
     return (
       <Screen>
         <ActivityIndicator color={t.accent} />

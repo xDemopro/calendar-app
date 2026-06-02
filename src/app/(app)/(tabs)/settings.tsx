@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,13 +16,13 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useUser } from '@/lib/auth';
-import type { Profile } from '@/lib/database.types';
 import {
   clearMyAvatar,
   getProfile,
   pickAndUploadMyAvatar,
   updateMyDisplayName,
 } from '@/lib/queries';
+import { qk } from '@/lib/queryKeys';
 import { supabase } from '@/lib/supabase';
 import { useTheme, useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
@@ -38,32 +38,31 @@ export default function SettingsScreen() {
   const user = useUser();
   const t = useThemeColors();
   const { mode, setMode } = useTheme();
+  const qc = useQueryClient();
 
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { data: profile } = useQuery({
+    queryKey: qk.profile(user?.id ?? ''),
+    queryFn: () => getProfile(user!.id),
+    enabled: !!user,
+  });
+
   const [name, setName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!user) return;
-    const p = await getProfile(user.id);
-    setProfile(p);
-    setName(p?.display_name ?? '');
-  }, [user]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  // Hydrate local name from server profile once it loads.
+  useEffect(() => {
+    if (profile && name === '') setName(profile.display_name ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
 
   async function handleSaveName() {
     setNameError(null);
     setSavingName(true);
     try {
-      const updated = await updateMyDisplayName(name);
-      setProfile(updated);
+      await updateMyDisplayName(name);
+      qc.invalidateQueries({ queryKey: qk.profile(user!.id) });
     } catch (e: any) {
       setNameError(e.message ?? 'Failed to save');
     } finally {
@@ -74,8 +73,8 @@ export default function SettingsScreen() {
   async function handleChangeAvatar() {
     setAvatarBusy(true);
     try {
-      const updated = await pickAndUploadMyAvatar();
-      setProfile(updated);
+      await pickAndUploadMyAvatar();
+      qc.invalidateQueries({ queryKey: qk.profile(user!.id) });
     } catch (e: any) {
       if (e.message !== 'cancelled') Alert.alert('Could not update photo', e.message);
     } finally {
@@ -94,8 +93,8 @@ export default function SettingsScreen() {
         onPress: async () => {
           setAvatarBusy(true);
           try {
-            const updated = await clearMyAvatar();
-            setProfile(updated);
+            await clearMyAvatar();
+            qc.invalidateQueries({ queryKey: qk.profile(user!.id) });
           } catch (e: any) {
             Alert.alert('Failed', e.message);
           } finally {
