@@ -61,9 +61,9 @@ export function useCreateEventMutation(familyId: string) {
       await enqueue({ kind: 'create_event', clientId, input: fullInput });
       return optimistic;
     },
-    onSettled: () => {
-      qc.invalidateQueries(qkMatch.anyEventsForFamily(familyId));
-    },
+    // No onSettled invalidation here — the outbox reconciles after the
+    // server write succeeds. Invalidating now would refetch the stale server
+    // state and overwrite our optimistic row.
   });
 }
 
@@ -85,10 +85,7 @@ export function useUpdateEventMutation(familyId: string) {
       );
       await enqueue({ kind: 'update_event', id, patch });
     },
-    onSettled: (_d, _e, vars) => {
-      qc.invalidateQueries(qkMatch.anyEventsForFamily(familyId));
-      qc.invalidateQueries({ queryKey: qk.event(vars.id) });
-    },
+    // outbox handles post-server invalidation
   });
 }
 
@@ -102,9 +99,9 @@ export function useDeleteEventMutation(familyId: string) {
       qc.removeQueries({ queryKey: qk.event(id) });
       await enqueue({ kind: 'delete_event', id });
     },
-    onSettled: () => {
-      qc.invalidateQueries(qkMatch.anyEventsForFamily(familyId));
-    },
+    // No onSettled invalidation here — the outbox reconciles after the
+    // server write succeeds. Invalidating now would refetch the stale server
+    // state and overwrite our optimistic row.
   });
 }
 
@@ -122,9 +119,7 @@ export function useAddParticipantMutation(eventId: string) {
       );
       await enqueue({ kind: 'add_participant', eventId, userId, addedBy });
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: qk.participants(eventId) });
-    },
+    // outbox handles post-server invalidation
   });
 }
 
@@ -137,9 +132,7 @@ export function useRemoveParticipantMutation(eventId: string) {
       );
       await enqueue({ kind: 'remove_participant', eventId, userId });
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: qk.participants(eventId) });
-    },
+    // outbox handles post-server invalidation
   });
 }
 
@@ -164,9 +157,7 @@ export function useCreateNoteMutation(eventId: string) {
       );
       await enqueue({ kind: 'create_note', clientId, eventId, createdBy, data });
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: qk.attachments(eventId) });
-    },
+    // outbox handles post-server invalidation
   });
 }
 
@@ -179,8 +170,6 @@ export function useUpdateNoteMutation(eventId: string) {
       );
       await enqueue({ kind: 'update_note', id, data });
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: qk.attachments(eventId) });
-    },
+    // outbox handles post-server invalidation
   });
 }

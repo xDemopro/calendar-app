@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, startOfDay } from 'date-fns';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -6,6 +6,8 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -25,7 +27,7 @@ import {
   listEventsWithParticipants,
   type EventWithParticipants,
 } from '@/lib/queries';
-import { qk } from '@/lib/queryKeys';
+import { qk, qkMatch } from '@/lib/queryKeys';
 import { useFamilyRealtime } from '@/lib/realtime';
 import { useCalendarViewMode } from '@/lib/viewMode';
 import { useThemeColors } from '@/theme/ThemeContext';
@@ -66,8 +68,23 @@ export default function FamilyCalendarScreen() {
   const [month, setMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [referenceMonth] = useState<Date>(new Date());
   const [selected, setSelected] = useState<string>(todayKey());
+  const [refreshing, setRefreshing] = useState(false);
 
+  const qc = useQueryClient();
   useFamilyRealtime(id);
+
+  async function handleRefresh() {
+    if (!id) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: qk.family(id) }),
+        qc.invalidateQueries(qkMatch.anyEventsForFamily(id)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const { data: family } = useQuery({
     queryKey: qk.family(id ?? ''),
@@ -168,7 +185,12 @@ export default function FamilyCalendarScreen() {
       <Screen padded={false} edges={['bottom']}>
         {viewMode === 'bars' ? (
           <>
-            <BarMonthView familyId={id!} referenceMonth={referenceMonth} />
+            <BarMonthView
+              familyId={id!}
+              referenceMonth={referenceMonth}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
             <View style={styles.fabContainer}>
               <Button
                 title="+  Add event"
@@ -243,7 +265,18 @@ export default function FamilyCalendarScreen() {
           )}
         </View>
 
-        <View style={{ paddingHorizontal: space.lg, gap: space.sm, flex: 1 }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 96, gap: space.sm }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={t.accent}
+              colors={[t.accent]}
+            />
+          }
+        >
           {dayEvents.length === 0 ? (
             <Text style={[type.body, { color: t.fgLow, textAlign: 'center', marginTop: space.lg }]}>
               No events on this day.
@@ -302,7 +335,7 @@ export default function FamilyCalendarScreen() {
               );
             })
           )}
-        </View>
+        </ScrollView>
 
         <View style={styles.fabContainer}>
           <Button

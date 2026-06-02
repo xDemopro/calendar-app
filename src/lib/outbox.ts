@@ -2,13 +2,17 @@
 // here; a drainer worker calls Supabase for each op when the device is online.
 //
 // Optimistic updates to the React Query cache happen at the call site (see
-// src/lib/mutations.ts), independently from this queue. This file only owns
-// the durable "what needs to be sent to the server" list.
+// src/lib/mutations.ts), independently from this queue. After a successful
+// server write the outbox itself reconciles the cache via
+// queryClient.invalidateQueries — so the optimistic row is replaced with the
+// real one, not blown away too early.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onlineManager } from '@tanstack/react-query';
 
 import type { EventInsert, EventUpdate } from './database.types';
+import { queryClient } from './queryClient';
+import { qk, qkMatch } from './queryKeys';
 import { supabase } from './supabase';
 
 const STORAGE_KEY = 'familycal.outbox-v1';
@@ -106,16 +110,23 @@ async function applyOp(op: OutboxOp): Promise<void> {
     case 'create_event': {
       const { error } = await supabase.from('events').insert(op.input);
       if (error) throw error;
+      queryClient.invalidateQueries(qkMatch.anyEventsForFamily(op.input.family_id));
       return;
     }
     case 'update_event': {
       const { error } = await supabase.from('events').update(op.patch).eq('id', op.id);
       if (error) throw error;
+      // We don't track family_id on this op shape, but invalidating the event
+      // and broadly invalidating events queries works since the predicate also
+      // matches by familyId we typically don't have here. Just bust the event
+      // entry; the list queries will refetch on next focus/pull.
+      queryClient.invalidateQueries({ queryKey: qk.event(op.id) });
       return;
     }
     case 'delete_event': {
       const { error } = await supabase.from('events').delete().eq('id', op.id);
       if (error) throw error;
+      queryClient.removeQueries({ queryKey: qk.event(op.id) });
       return;
     }
     case 'add_participant': {
@@ -125,6 +136,7 @@ async function applyOp(op: OutboxOp): Promise<void> {
         added_by: op.addedBy,
       });
       if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: qk.participants(op.eventId) });
       return;
     }
     case 'remove_participant': {
@@ -134,6 +146,7 @@ async function applyOp(op: OutboxOp): Promise<void> {
         .eq('event_id', op.eventId)
         .eq('user_id', op.userId);
       if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: qk.participants(op.eventId) });
       return;
     }
     case 'create_note': {
@@ -144,6 +157,7 @@ async function applyOp(op: OutboxOp): Promise<void> {
         created_by: op.createdBy,
       });
       if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: qk.attachments(op.eventId) });
       return;
     }
     case 'update_note': {
@@ -152,6 +166,8 @@ async function applyOp(op: OutboxOp): Promise<void> {
         .update({ data: op.data as any })
         .eq('id', op.id);
       if (error) throw error;
+      // We don't know the event_id here — accept this and let realtime / focus
+      // bring the cache in line.
       return;
     }
     case 'delete_attachment_row': {

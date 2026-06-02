@@ -6,6 +6,8 @@ import {
   Dimensions,
   FlatList,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -126,11 +128,16 @@ export function BarMonthView({
   familyId,
   referenceMonth,
   onMonthChange,
+  refreshing,
+  onRefresh,
 }: {
   familyId: string;
   referenceMonth: Date;
   onMonthChange?: (month: Date) => void;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
+  const t = useThemeColors();
   const listRef = useRef<FlatList>(null);
   const [pageWidth, setPageWidth] = useState<number>(SCREEN.width);
   const [currentIndex, setCurrentIndex] = useState<number>(INITIAL_INDEX);
@@ -170,7 +177,13 @@ export function BarMonthView({
         removeClippedSubviews
         renderItem={({ item: index }) => (
           <View style={{ width: pageWidth }}>
-            <MonthPage familyId={familyId} month={monthPageDate(referenceMonth, index)} />
+            <MonthPage
+              familyId={familyId}
+              month={monthPageDate(referenceMonth, index)}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              refreshTint={t.accent}
+            />
           </View>
         )}
       />
@@ -190,8 +203,21 @@ function MonthHeader({ month }: { month: Date }) {
   );
 }
 
-function MonthPage({ familyId, month }: { familyId: string; month: Date }) {
+function MonthPage({
+  familyId,
+  month,
+  refreshing,
+  onRefresh,
+  refreshTint,
+}: {
+  familyId: string;
+  month: Date;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  refreshTint: string;
+}) {
   const t = useThemeColors();
+  void refreshing; void onRefresh; void refreshTint;
   const gridStart = monthGridStart(month);
   const gridEnd = addDays(gridStart, 42);
   const fromIso = gridStart.toISOString();
@@ -225,7 +251,20 @@ function MonthPage({ familyId, month }: { familyId: string; month: Date }) {
           </Text>
         ))}
       </View>
-      <View style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={!!refreshing}
+              onRefresh={onRefresh}
+              tintColor={refreshTint}
+              colors={[refreshTint]}
+            />
+          ) : undefined
+        }
+      >
         {weeks.map((weekStart, i) => (
           <WeekRow
             key={i}
@@ -234,7 +273,7 @@ function MonthPage({ familyId, month }: { familyId: string; month: Date }) {
             events={events ?? []}
           />
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
