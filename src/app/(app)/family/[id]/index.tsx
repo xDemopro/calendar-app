@@ -267,13 +267,21 @@ export default function FamilyCalendarScreen() {
 
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 96, gap: space.sm }}
+          contentContainerStyle={{
+            paddingHorizontal: space.lg,
+            paddingBottom: 96,
+            gap: space.sm,
+            flexGrow: 1,
+          }}
+          alwaysBounceVertical
+          bounces
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor={t.accent}
               colors={[t.accent]}
+              progressViewOffset={8}
             />
           }
         >

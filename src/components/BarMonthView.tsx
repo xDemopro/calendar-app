@@ -254,6 +254,8 @@ function MonthPage({
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ flexGrow: 1 }}
+        alwaysBounceVertical
+        bounces
         refreshControl={
           onRefresh ? (
             <RefreshControl
@@ -261,6 +263,7 @@ function MonthPage({
               onRefresh={onRefresh}
               tintColor={refreshTint}
               colors={[refreshTint]}
+              progressViewOffset={8}
             />
           ) : undefined
         }
