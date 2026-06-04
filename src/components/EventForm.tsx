@@ -1,11 +1,12 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format } from 'date-fns';
-import { useState } from 'react';
+import { format, startOfDay } from 'date-fns';
+import { useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Calendar, type DateData } from 'react-native-calendars';
 
 import { Input } from './Input';
 import { useThemeColors } from '@/theme/ThemeContext';
-import { radius, space, type } from '@/theme/tokens';
+import { FONT_FAMILY_BY_WEIGHT, radius, space, type } from '@/theme/tokens';
 
 export type EventFormValues = {
   title: string;
@@ -46,10 +47,10 @@ export function EventForm({ initial, onChange }: Props) {
   const [picker, setPicker] = useState<null | { field: 'starts_at' | 'ends_at'; mode: 'date' | 'time' }>(null);
 
   function update<K extends keyof EventFormValues>(key: K, val: EventFormValues[K]) {
-    let next = { ...values, [key]: val };
-    if (key === 'starts_at' && next.ends_at < next.starts_at) {
-      next.ends_at = plusOneHour(next.starts_at);
-    }
+    const next = { ...values, [key]: val };
+    // No auto-adjust: changing the start date used to also bump the end,
+    // which surprised users picking a range. Form's submit handler still
+    // validates that end >= start.
     setValues(next);
     onChange(next);
   }
@@ -123,10 +124,22 @@ export function EventForm({ initial, onChange }: Props) {
           )}
       </View>
 
-      {picker ? (
+      {picker?.mode === 'date' ? (
+        <DateRangePickerCalendar
+          activeDate={activeDate}
+          startDate={values.starts_at}
+          endDate={values.ends_at}
+          onPick={(picked) => {
+            // Preserve the time-of-day from the field being edited.
+            const target = new Date(activeDate);
+            target.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+            update(picker.field, target);
+          }}
+        />
+      ) : picker?.mode === 'time' ? (
         <DateTimePicker
           value={activeDate}
-          mode={picker.mode}
+          mode="time"
           display={Platform.OS === 'ios' ? 'inline' : 'default'}
           onChange={(_event, date) => {
             if (Platform.OS !== 'ios') setPicker(null);
@@ -137,12 +150,89 @@ export function EventForm({ initial, onChange }: Props) {
           accentColor={t.accent}
         />
       ) : null}
-      {picker && Platform.OS === 'ios' ? (
+      {picker ? (
         <Pressable onPress={() => setPicker(null)} style={styles.doneBtn}>
           <Text style={[type.callout, { color: t.accent }]}>Done</Text>
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+function DateRangePickerCalendar({
+  activeDate,
+  startDate,
+  endDate,
+  onPick,
+}: {
+  activeDate: Date;
+  startDate: Date;
+  endDate: Date;
+  onPick: (date: Date) => void;
+}) {
+  const t = useThemeColors();
+
+  // Build period marking from startDate to endDate so the user sees a bar
+  // across the picked range. The endpoint they're editing (activeDate) keeps
+  // the same color but the startingDay/endingDay flags handle the rounded
+  // caps. If end < start, fall back to a single-day marker on whichever the
+  // user is editing.
+  const markedDates = useMemo(() => {
+    const out: Record<string, any> = {};
+    const startDay = startOfDay(startDate);
+    const endDay = startOfDay(endDate);
+    if (endDay.getTime() < startDay.getTime()) {
+      // Invalid range — just mark the activeDate as a single-day selection.
+      const key = format(activeDate, 'yyyy-MM-dd');
+      out[key] = {
+        startingDay: true,
+        endingDay: true,
+        color: t.accent,
+        textColor: t.onAccent,
+      };
+      return out;
+    }
+    const cursor = new Date(startDay);
+    while (cursor.getTime() <= endDay.getTime()) {
+      const key = format(cursor, 'yyyy-MM-dd');
+      out[key] = {
+        color: t.accent,
+        textColor: t.onAccent,
+        startingDay: cursor.getTime() === startDay.getTime(),
+        endingDay: cursor.getTime() === endDay.getTime(),
+      };
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return out;
+  }, [startDate, endDate, activeDate, t.accent, t.onAccent]);
+
+  return (
+    <Calendar
+      current={format(activeDate, 'yyyy-MM-dd')}
+      markingType="period"
+      markedDates={markedDates}
+      onDayPress={(d: DateData) => {
+        const [y, m, day] = d.dateString.split('-').map(Number);
+        onPick(new Date(y, m - 1, day));
+      }}
+      firstDay={1}
+      theme={{
+        backgroundColor: t.bg,
+        calendarBackground: t.bg,
+        textSectionTitleColor: t.fgLow,
+        monthTextColor: t.ink,
+        dayTextColor: t.ink,
+        todayTextColor: t.today,
+        arrowColor: t.accent,
+        textDisabledColor: t.fgLow,
+        textMonthFontFamily: FONT_FAMILY_BY_WEIGHT['700'],
+        textDayHeaderFontFamily: FONT_FAMILY_BY_WEIGHT['600'],
+        textDayFontFamily: FONT_FAMILY_BY_WEIGHT['600'],
+        textMonthFontSize: 17,
+        textDayFontSize: 15,
+        textDayHeaderFontSize: 12,
+      }}
+    />
   );
 }
 

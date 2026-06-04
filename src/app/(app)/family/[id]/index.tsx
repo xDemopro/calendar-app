@@ -25,6 +25,7 @@ import { BarMonthView } from '@/components/BarMonthView';
 import { Button } from '@/components/Button';
 import { ContextMenu, type ContextMenuAction } from '@/components/ContextMenu';
 import { FamilyAvatar } from '@/components/FamilyAvatar';
+import { MonthYearPicker } from '@/components/MonthYearPicker';
 import { Screen } from '@/components/Screen';
 import { UserAvatar } from '@/components/UserAvatar';
 import { buildEventColorMap, colorForEvent } from '@/lib/eventColor';
@@ -76,6 +77,18 @@ export default function FamilyCalendarScreen() {
   const [referenceMonth] = useState<Date>(new Date());
   const [selected, setSelected] = useState<string>(todayKey());
   const [refreshing, setRefreshing] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  function jumpToMonth(target: Date) {
+    const newMonth = format(target, 'yyyy-MM');
+    setMonth(newMonth);
+    // Also shift selected day to the same day-of-month in the new month
+    // (clamped), so the day list below stays meaningful.
+    const [, , d] = selected.split('-').map(Number);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    const day = Math.min(d, lastDay);
+    setSelected(format(new Date(target.getFullYear(), target.getMonth(), day), 'yyyy-MM-dd'));
+  }
 
   const qc = useQueryClient();
   useFamilyRealtime(id);
@@ -355,8 +368,8 @@ export default function FamilyCalendarScreen() {
       calendarTranslateX.setValue(v);
     })
     .onEnd((e) => {
-      const enoughDistance = Math.abs(e.translationX) > 60;
-      const enoughVelocity = Math.abs(e.velocityX) > 450;
+      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.6;
+      const enoughVelocity = Math.abs(e.velocityX) > 800;
       if (!enoughDistance && !enoughVelocity) {
         cancelCalendarSwipe();
         return;
@@ -422,6 +435,12 @@ export default function FamilyCalendarScreen() {
           headerRight: () => <ViewPill mode={viewMode} onChange={setViewMode} />,
         }}
       />
+      <MonthYearPicker
+        visible={pickerOpen}
+        currentMonth={parseISO(`${month}-01`)}
+        onClose={() => setPickerOpen(false)}
+        onSelect={jumpToMonth}
+      />
       <Screen padded={false} edges={['bottom']}>
         {viewMode === 'bars' ? (
           <>
@@ -430,6 +449,7 @@ export default function FamilyCalendarScreen() {
               referenceMonth={referenceMonth}
               refreshing={refreshing}
               onRefresh={handleRefresh}
+              onPickMonthYear={() => setPickerOpen(true)}
             />
             <View style={styles.fabContainer}>
               <Button
@@ -437,7 +457,7 @@ export default function FamilyCalendarScreen() {
                 onPress={() =>
                   router.push({
                     pathname: '/(app)/family/[id]/event/new',
-                    params: { id: id!, date: selected },
+                    params: { id: id! },
                   })
                 }
               />
@@ -494,9 +514,22 @@ export default function FamilyCalendarScreen() {
             </Pressable>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Text style={[type.title1, { color: t.ink }]}>
-                {format(parseISO(`${month}-01`), 'MMMM yyyy')}
-              </Text>
+              <Pressable
+                onPress={() => setPickerOpen(true)}
+                hitSlop={8}
+                accessibilityLabel="Pick month and year"
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Text style={[type.title1, { color: t.ink }]}>
+                  {format(parseISO(`${month}-01`), 'MMMM yyyy')}
+                </Text>
+                <Feather name="chevron-down" size={20} color={t.fgMed} />
+              </Pressable>
               <Pressable
                 onPress={handleRefresh}
                 hitSlop={12}

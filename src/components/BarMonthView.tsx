@@ -125,12 +125,14 @@ export function BarMonthView({
   onMonthChange,
   refreshing,
   onRefresh,
+  onPickMonthYear,
 }: {
   familyId: string;
   referenceMonth: Date;
   onMonthChange?: (month: Date) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
+  onPickMonthYear?: () => void;
 }) {
   const t = useThemeColors();
   const [month, setMonth] = useState<Date>(referenceMonth);
@@ -213,8 +215,8 @@ export function BarMonthView({
       translateX.setValue(v);
     })
     .onEnd((e) => {
-      const enoughDistance = Math.abs(e.translationX) > 25;
-      const enoughVelocity = Math.abs(e.velocityX) > 250;
+      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.6;
+      const enoughVelocity = Math.abs(e.velocityX) > 800;
       if (!enoughDistance && !enoughVelocity) {
         cancel();
         return;
@@ -239,6 +241,7 @@ export function BarMonthView({
           refreshTint={t.accent}
           onPrev={() => complete(-1)}
           onNext={() => complete(1)}
+          onPickMonthYear={onPickMonthYear}
           scrollGesture={scrollGesture}
         />
       </Animated.View>
@@ -252,12 +255,14 @@ function MonthHeader({
   onRefresh,
   onPrev,
   onNext,
+  onPickMonthYear,
 }: {
   month: Date;
   refreshing?: boolean;
   onRefresh?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
+  onPickMonthYear?: () => void;
 }) {
   const t = useThemeColors();
   return (
@@ -282,10 +287,23 @@ function MonthHeader({
       </Pressable>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Text>
-          <Text style={[type.title1, { color: t.ink }]}>{format(month, 'LLLL')}</Text>
-          <Text style={[type.title1, { color: t.fgLow }]}> {format(month, 'yyyy')}</Text>
-        </Text>
+        <Pressable
+          onPress={onPickMonthYear}
+          hitSlop={8}
+          disabled={!onPickMonthYear}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Text>
+            <Text style={[type.title1, { color: t.ink }]}>{format(month, 'LLLL')}</Text>
+            <Text style={[type.title1, { color: t.fgLow }]}> {format(month, 'yyyy')}</Text>
+          </Text>
+          {onPickMonthYear ? <Feather name="chevron-down" size={20} color={t.fgMed} /> : null}
+        </Pressable>
         {onRefresh ? (
           <Pressable
             onPress={onRefresh}
@@ -324,6 +342,7 @@ function MonthPage({
   refreshTint,
   onPrev,
   onNext,
+  onPickMonthYear,
   scrollGesture,
 }: {
   familyId: string;
@@ -333,6 +352,7 @@ function MonthPage({
   refreshTint: string;
   onPrev?: () => void;
   onNext?: () => void;
+  onPickMonthYear?: () => void;
   scrollGesture: GestureType;
 }) {
   const t = useThemeColors();
@@ -362,7 +382,7 @@ function MonthPage({
       <GestureDetector gesture={scrollGesture}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 96 }}
         alwaysBounceVertical
         bounces
         refreshControl={
@@ -383,6 +403,7 @@ function MonthPage({
           onRefresh={onRefresh}
           onPrev={onPrev}
           onNext={onNext}
+          onPickMonthYear={onPickMonthYear}
         />
         <View style={[styles.weekdayHeader, { borderBottomColor: t.border, backgroundColor: t.bg }]}>
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
