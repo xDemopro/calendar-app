@@ -121,26 +121,30 @@ function packWeek(events: EventWithParticipants[], weekStart: Date): {
 
 export function BarMonthView({
   familyId,
-  referenceMonth,
+  month,
   onMonthChange,
   refreshing,
   onRefresh,
   onPickMonthYear,
 }: {
   familyId: string;
-  referenceMonth: Date;
-  onMonthChange?: (month: Date) => void;
+  // Controlled by parent so this view stays in sync with the dots view.
+  month: Date;
+  onMonthChange: (month: Date) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
   onPickMonthYear?: () => void;
 }) {
   const t = useThemeColors();
-  const [month, setMonth] = useState<Date>(referenceMonth);
   const screenWidth = SCREEN.width;
   // Native gesture for the inner MonthPage's ScrollView. Our Pan claims
   // simultaneousWithExternalGesture(scrollGesture) so it doesn't block
   // vertical pulls / pull-to-refresh.
   const scrollGesture = useMemo<GestureType>(() => Gesture.Native(), []);
+  // Keep the latest month accessible in animation callbacks (which capture
+  // the value at the time of binding) without forcing useMemo recompute.
+  const monthRef = useRef(month);
+  monthRef.current = month;
 
   // RNGH-driven horizontal swipe with animated translate, same pattern as
   // the dots calendar's month swipe.
@@ -151,11 +155,7 @@ export function BarMonthView({
   function applyPending() {
     const dir = pendingDirRef.current;
     if (dir == null) return;
-    setMonth((prev) => {
-      const next = addMonths(prev, dir);
-      onMonthChange?.(next);
-      return next;
-    });
+    onMonthChange(addMonths(monthRef.current, dir));
     pendingDirRef.current = null;
   }
 
@@ -201,8 +201,8 @@ export function BarMonthView({
   }
 
   const swipeGesture = Gesture.Pan()
-    .activeOffsetX([-5, 5])
-    .simultaneousWithExternalGesture(scrollGesture)
+    .activeOffsetX([-18, 18])
+    .failOffsetY([-15, 15])
     .runOnJS(true)
     .onStart(() => {
       if (animatingRef.current) interrupt();
@@ -215,8 +215,8 @@ export function BarMonthView({
       translateX.setValue(v);
     })
     .onEnd((e) => {
-      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.6;
-      const enoughVelocity = Math.abs(e.velocityX) > 800;
+      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.4;
+      const enoughVelocity = Math.abs(e.velocityX) > 600;
       if (!enoughDistance && !enoughVelocity) {
         cancel();
         return;

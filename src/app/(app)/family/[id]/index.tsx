@@ -74,7 +74,6 @@ export default function FamilyCalendarScreen() {
   const { mode: viewMode, setMode: setViewMode } = useCalendarViewMode();
 
   const [month, setMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
-  const [referenceMonth] = useState<Date>(new Date());
   const [selected, setSelected] = useState<string>(todayKey());
   const [refreshing, setRefreshing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -351,11 +350,12 @@ export default function FamilyCalendarScreen() {
   }
 
   const calendarSwipeGesture = Gesture.Pan()
-    // Higher activation threshold + larger release thresholds so an
-    // accidental sideways drift during a vertical pull doesn't change the
-    // month. A deliberate swipe still triggers reliably.
+    // Higher horizontal activation threshold + a failOffsetY: once vertical
+    // motion exceeds 15px the Pan fails and the ScrollView takes over for
+    // pull-to-refresh. Provides a directional lock — once the user is going
+    // horizontal, vertical scroll is suppressed (and vice versa).
     .activeOffsetX([-18, 18])
-    .simultaneousWithExternalGesture(scrollGesture)
+    .failOffsetY([-15, 15])
     .runOnJS(true)
     .onStart(() => {
       if (calendarAnimatingRef.current) interruptCalendarSwipe();
@@ -368,8 +368,8 @@ export default function FamilyCalendarScreen() {
       calendarTranslateX.setValue(v);
     })
     .onEnd((e) => {
-      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.6;
-      const enoughVelocity = Math.abs(e.velocityX) > 800;
+      const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.4;
+      const enoughVelocity = Math.abs(e.velocityX) > 600;
       if (!enoughDistance && !enoughVelocity) {
         cancelCalendarSwipe();
         return;
@@ -384,7 +384,7 @@ export default function FamilyCalendarScreen() {
   // complete or spring back. Interrupt-and-commit handles spam-swipes.
   const daySwipeGesture = Gesture.Pan()
     .activeOffsetX([-5, 5])
-    .simultaneousWithExternalGesture(scrollGesture)
+    .failOffsetY([-10, 10])
     .runOnJS(true)
     .onStart(() => {
       if (animatingRef.current) interruptDaySwipe();
@@ -446,7 +446,8 @@ export default function FamilyCalendarScreen() {
           <>
             <BarMonthView
               familyId={id!}
-              referenceMonth={referenceMonth}
+              month={parseISO(`${month}-01`)}
+              onMonthChange={(d) => setMonth(format(d, 'yyyy-MM'))}
               refreshing={refreshing}
               onRefresh={handleRefresh}
               onPickMonthYear={() => setPickerOpen(true)}
