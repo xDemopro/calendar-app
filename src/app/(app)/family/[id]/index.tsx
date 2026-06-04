@@ -152,18 +152,6 @@ export default function FamilyCalendarScreen() {
 
   const dayEvents = useMemo(() => filterDayEvents(selected), [events, selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Adjacent days for the side-panel swipe effect.
-  const prevSelected = useMemo(() => {
-    const [y, m, d] = selected.split('-').map(Number);
-    return format(new Date(y, m - 1, d - 1), 'yyyy-MM-dd');
-  }, [selected]);
-  const nextSelected = useMemo(() => {
-    const [y, m, d] = selected.split('-').map(Number);
-    return format(new Date(y, m - 1, d + 1), 'yyyy-MM-dd');
-  }, [selected]);
-  const prevDayEvents = useMemo(() => filterDayEvents(prevSelected), [events, prevSelected]); // eslint-disable-line react-hooks/exhaustive-deps
-  const nextDayEvents = useMemo(() => filterDayEvents(nextSelected), [events, nextSelected]); // eslint-disable-line react-hooks/exhaustive-deps
-
   function dayLabel(e: EventWithParticipants): string {
     const start = parseISO(e.starts_at);
     const end = effectiveEnd(e);
@@ -188,14 +176,11 @@ export default function FamilyCalendarScreen() {
   const monthRef = useRef(month);
   monthRef.current = month;
 
-  // Day swipe — 3-panel pager. The Animated.View is 3 screens wide; we keep
-  // its translateX at -screenWidth so the middle panel (the current day) is
-  // visible. As the user drags, translateX = -screenWidth + dx, revealing
-  // the prev/next panel. On commit, we animate the full slide, swap the
-  // selected day in state, then reset translateX to -screenWidth (so the
-  // new "current" day sits in the middle panel).
+  // Interactive horizontal drag for switching days. Single-panel: content
+  // slides out, day swap happens while invisible, content slides in.
   const screenWidth = Dimensions.get('window').width;
-  const dayTranslateX = useRef(new Animated.Value(-screenWidth)).current;
+  const dayTranslateX = useRef(new Animated.Value(0)).current;
+  const dayOpacity = useRef(new Animated.Value(1)).current;
   const animatingRef = useRef(false);
   const pendingDirRef = useRef<1 | -1 | null>(null);
 
@@ -212,8 +197,10 @@ export default function FamilyCalendarScreen() {
 
   function interruptDaySwipe() {
     dayTranslateX.stopAnimation();
+    dayOpacity.stopAnimation();
     applyPendingSwap();
-    dayTranslateX.setValue(-screenWidth);
+    dayTranslateX.setValue(0);
+    dayOpacity.setValue(1);
     animatingRef.current = false;
   }
 
@@ -222,25 +209,46 @@ export default function FamilyCalendarScreen() {
     animatingRef.current = true;
     pendingDirRef.current = dir;
     Haptics.selectionAsync().catch(() => {});
-    const target = -screenWidth + (dir === 1 ? -screenWidth : screenWidth);
-    Animated.timing(dayTranslateX, {
-      toValue: target,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
+    const slideTo = -dir * screenWidth;
+    Animated.parallel([
+      Animated.timing(dayTranslateX, {
+        toValue: slideTo,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(dayOpacity, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
       if (!finished) return;
       applyPendingSwap();
-      // After state swap, the new "current day" content renders in the
-      // middle panel. Reset translateX to base so it's visible.
-      dayTranslateX.setValue(-screenWidth);
-      animatingRef.current = false;
+      dayTranslateX.setValue(dir * screenWidth);
+      Animated.parallel([
+        Animated.timing(dayTranslateX, {
+          toValue: 0,
+          duration: 260,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(dayOpacity, {
+          toValue: 1,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished: f2 }) => {
+        if (f2) animatingRef.current = false;
+      });
     });
   }
 
   function cancelDaySwipe() {
     Animated.spring(dayTranslateX, {
-      toValue: -screenWidth,
+      toValue: 0,
       useNativeDriver: true,
       friction: 9,
       tension: 90,
@@ -369,10 +377,12 @@ export default function FamilyCalendarScreen() {
       if (animatingRef.current) interruptDaySwipe();
     })
     .onUpdate((e) => {
-      // 3-panel pager: keep translateX around -screenWidth so the middle
-      // panel (current day) is visible, with the side panels (prev/next
-      // day) flanking. The drag reveals them naturally.
-      dayTranslateX.setValue(-screenWidth + e.translationX);
+      // Follow finger with a soft rubber-band past 55% screen width.
+      const max = screenWidth * 0.55;
+      let v = e.translationX;
+      if (v > max) v = max + (v - max) * 0.35;
+      else if (v < -max) v = -max + (v + max) * 0.35;
+      dayTranslateX.setValue(v);
     })
     .onEnd((e) => {
       const enoughDistance = Math.abs(e.translationX) > screenWidth * 0.14;
@@ -567,108 +577,86 @@ export default function FamilyCalendarScreen() {
         </GestureDetector>
 
         <GestureDetector gesture={daySwipeGesture}>
-          <View style={{ flex: 1, overflow: 'hidden' }} collapsable={false}>
-            <Animated.View
-              collapsable={false}
-              style={{
-                flexDirection: 'row',
-                width: screenWidth * 3,
-                height: '100%',
-                transform: [{ translateX: dayTranslateX }],
-              }}
-            >
-              {[prevSelected, selected, nextSelected].map((dateYmd, idx) => {
-                const eventsForDay =
-                  idx === 0 ? prevDayEvents : idx === 1 ? dayEvents : nextDayEvents;
-                const isActive = idx === 1;
-                return (
-                  <View
-                    key={`${dateYmd}-${idx}`}
-                    style={{ width: screenWidth }}
-                    pointerEvents={isActive ? 'auto' : 'none'}
-                  >
-                    <View style={styles.dayHeader}>
-                      <Text style={[type.title3, { color: t.ink }]} numberOfLines={1}>
-                        {format(parseISO(dateYmd), 'EEEE, MMMM d')}
-                      </Text>
-                      {loading && !refreshing && isActive ? <ActivityIndicator color={t.accent} /> : (
-                        <Text style={[type.footnote, { color: t.fgLow }]}>
-                          {eventsForDay.length} {eventsForDay.length === 1 ? 'event' : 'events'}
-                        </Text>
-                      )}
-                    </View>
+          <Animated.View
+            collapsable={false}
+            style={{
+              flex: 1,
+              transform: [{ translateX: dayTranslateX }],
+              opacity: dayOpacity,
+            }}
+          >
+            <View style={styles.dayHeader}>
+              <Text style={[type.title3, { color: t.ink }]} numberOfLines={1}>
+                {format(parseISO(selected), 'EEEE, MMMM d')}
+              </Text>
+              {loading && !refreshing ? <ActivityIndicator color={t.accent} /> : (
+                <Text style={[type.footnote, { color: t.fgLow }]}>
+                  {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                </Text>
+              )}
+            </View>
 
-                    <View
-                      style={{
-                        paddingHorizontal: space.lg,
-                        gap: space.sm,
-                        flexGrow: 1,
-                      }}
-                    >
-                      {eventsForDay.length === 0 ? (
-                        <Text style={[type.body, { color: t.fgLow, textAlign: 'center', marginTop: space.lg }]}>
-                          No events on this day.
-                        </Text>
-                      ) : (
-                        eventsForDay.map((e) => {
-                          const dotColor = colorForEvent(e.id, t.name, colorMap);
-                          const actions: ContextMenuAction[] = [
-                            {
-                              title: 'Edit',
-                              onPress: () =>
-                                router.push({
-                                  pathname: '/(app)/family/[id]/event/[eventId]/edit',
-                                  params: { id: id!, eventId: e.id },
-                                }),
+            <View style={{ paddingHorizontal: space.lg, gap: space.sm, flexGrow: 1 }}>
+              {dayEvents.length === 0 ? (
+                <Text style={[type.body, { color: t.fgLow, textAlign: 'center', marginTop: space.lg }]}>
+                  No events on this day.
+                </Text>
+              ) : (
+                dayEvents.map((e) => {
+                  const dotColor = colorForEvent(e.id, t.name, colorMap);
+                  const actions: ContextMenuAction[] = [
+                    {
+                      title: 'Edit',
+                      onPress: () =>
+                        router.push({
+                          pathname: '/(app)/family/[id]/event/[eventId]/edit',
+                          params: { id: id!, eventId: e.id },
+                        }),
+                    },
+                    {
+                      title: 'Delete',
+                      destructive: true,
+                      onPress: () =>
+                        Alert.alert('Delete event?', 'This cannot be undone.', [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Delete',
+                            style: 'destructive',
+                            onPress: () => {
+                              deleteEventMut.mutate(e.id, {
+                                onError: (err: any) => Alert.alert('Failed', err.message),
+                              });
                             },
-                            {
-                              title: 'Delete',
-                              destructive: true,
-                              onPress: () =>
-                                Alert.alert('Delete event?', 'This cannot be undone.', [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: () => {
-                                      deleteEventMut.mutate(e.id, {
-                                        onError: (err: any) => Alert.alert('Failed', err.message),
-                                      });
-                                    },
-                                  },
-                                ]),
-                            },
-                          ];
-                          return (
-                            <ContextMenu
-                              key={e.id}
-                              actions={actions}
-                              subtitle={e.title}
-                              onPress={() =>
-                                router.push({
-                                  pathname: '/(app)/family/[id]/event/[eventId]',
-                                  params: { id: id!, eventId: e.id },
-                                })
-                              }
-                            >
-                              <View style={[styles.eventCard, { backgroundColor: t.bgRaised, borderColor: t.border, borderLeftColor: dotColor }]}>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={[type.headline, { color: t.ink }]}>{e.title}</Text>
-                                  <Text style={[type.footnote, { color: t.fgMed }]}>{dayLabel(e)}</Text>
-                                  {e.location ? <Text style={[type.caption, { color: t.fgLow }]}>{e.location}</Text> : null}
-                                </View>
-                                <ParticipantStack participants={e.participants} />
-                              </View>
-                            </ContextMenu>
-                          );
+                          },
+                        ]),
+                    },
+                  ];
+                  return (
+                    <ContextMenu
+                      key={e.id}
+                      actions={actions}
+                      subtitle={e.title}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/(app)/family/[id]/event/[eventId]',
+                          params: { id: id!, eventId: e.id },
                         })
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
-            </Animated.View>
-          </View>
+                      }
+                    >
+                      <View style={[styles.eventCard, { backgroundColor: t.bgRaised, borderColor: t.border, borderLeftColor: dotColor }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[type.headline, { color: t.ink }]}>{e.title}</Text>
+                          <Text style={[type.footnote, { color: t.fgMed }]}>{dayLabel(e)}</Text>
+                          {e.location ? <Text style={[type.caption, { color: t.fgLow }]}>{e.location}</Text> : null}
+                        </View>
+                        <ParticipantStack participants={e.participants} />
+                      </View>
+                    </ContextMenu>
+                  );
+                })
+              )}
+            </View>
+          </Animated.View>
         </GestureDetector>
         </ScrollView>
         </GestureDetector>
