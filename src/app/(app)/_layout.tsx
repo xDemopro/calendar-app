@@ -42,6 +42,10 @@ export default function AppLayout() {
         options={{ title: 'Note', presentation: 'modal' }}
       />
       <Stack.Screen
+        name="family/[id]/event/[eventId]/link"
+        options={{ title: 'Link', presentation: 'modal' }}
+      />
+      <Stack.Screen
         name="family/[id]/event/[eventId]/add-participant"
         options={{ title: 'Add participants', presentation: 'modal' }}
       />

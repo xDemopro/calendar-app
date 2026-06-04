@@ -15,7 +15,7 @@ import { queryClient } from './queryClient';
 import { qk, qkMatch } from './queryKeys';
 import { supabase } from './supabase';
 
-const STORAGE_KEY = 'familycal.outbox-v1';
+const STORAGE_KEY = 'ffcal.outbox-v1';
 
 export type OutboxOp =
   | { kind: 'create_event'; clientId: string; input: EventInsert }
@@ -25,6 +25,8 @@ export type OutboxOp =
   | { kind: 'remove_participant'; eventId: string; userId: string }
   | { kind: 'create_note'; clientId: string; eventId: string; createdBy: string; data: { title: string; body: string } }
   | { kind: 'update_note'; id: string; data: { title: string; body: string } }
+  | { kind: 'create_link'; clientId: string; eventId: string; createdBy: string; data: { url: string; title?: string } }
+  | { kind: 'update_link'; id: string; data: { url: string; title?: string } }
   | { kind: 'delete_attachment_row'; id: string };
 
 export type OutboxItem = {
@@ -170,12 +172,46 @@ async function applyOp(op: OutboxOp): Promise<void> {
       // bring the cache in line.
       return;
     }
+    case 'create_link': {
+      const { error } = await supabase.from('event_attachments').insert({
+        event_id: op.eventId,
+        kind: 'link',
+        data: op.data as any,
+        created_by: op.createdBy,
+      });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: qk.attachments(op.eventId) });
+      return;
+    }
+    case 'update_link': {
+      const { error } = await supabase
+        .from('event_attachments')
+        .update({ data: op.data as any })
+        .eq('id', op.id);
+      if (error) throw error;
+      // Same as update_note: no event_id on the op; realtime/focus reconciles.
+      return;
+    }
     case 'delete_attachment_row': {
       const { error } = await supabase.from('event_attachments').delete().eq('id', op.id);
       if (error) throw error;
       return;
     }
   }
+}
+
+// Wipe queue + disk + notify subscribers. Called from auth when the user signs
+// out or switches accounts so user A's pending mutations don't run as user B.
+export async function clearOutbox(): Promise<void> {
+  items = [];
+  lastEnqueueOrder = 0;
+  loaded = true; // skip the next loadFromDisk(); we know disk is empty
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // best-effort
+  }
+  notify();
 }
 
 export async function drain(): Promise<void> {

@@ -30,7 +30,7 @@ export const queryClient = new QueryClient({
 
 export const persister = createAsyncStoragePersister({
   storage: AsyncStorage,
-  key: 'familycal.qc-v1',
+  key: 'ffcal.qc-v1',
   throttleTime: 1000,
 });
 

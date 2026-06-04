@@ -1,4 +1,4 @@
-# FamilyCal — Claude context
+# F&F Calendar — Claude context
 
 A shared family calendar built on Expo + Supabase. Each family is a small group of users who can all see, add, and edit a single calendar; events can carry rich attachments (notes today, hotel bookings / boarding passes later).
 
@@ -90,6 +90,7 @@ src/
 (app)/family/[id]/event/[eventId]/index.tsx     view-only
 (app)/family/[id]/event/[eventId]/edit.tsx      modal
 (app)/family/[id]/event/[eventId]/note.tsx      modal (note attachment editor)
+(app)/family/[id]/event/[eventId]/link.tsx      modal (link attachment editor)
 (app)/family/[id]/event/[eventId]/add-participant.tsx  modal
 (app)/profile/[userId].tsx                      modal
 ```
@@ -136,6 +137,31 @@ alter publication supabase_realtime add table public.<name>;
 ```
 
 The current publication includes all six tables above plus `profiles`.
+
+### Auth lifecycle — cache + outbox reset
+
+`AuthProvider` (`src/lib/auth.tsx`) listens to `supabase.auth.onAuthStateChange`
+and clears all **user-scoped** state when:
+
+- the event is `SIGNED_OUT` (Settings sign-out, token revocation, refresh failure), or
+- the observed user id changes between two consecutive events (account switch)
+
+What gets cleared:
+- React Query in-memory cache (`queryClient.clear()`)
+- React Query disk persistence (`AsyncStorage.removeItem('ffcal.qc-v1')`)
+- The outbox queue (`clearOutbox()` in `outbox.ts`)
+
+What is **not** cleared (device-scoped, survives user switches):
+- `ffcal.themeMode` (light/dark/system)
+- `ffcal.viewMode` (bars vs dots)
+
+`previousUserId` is null on first observation, so the **normal cold-start path**
+(open the app already signed in) does NOT clear — the persisted cache is still
+valid for that user. Token refreshes for the same user also don't clear.
+
+If you add new user-scoped AsyncStorage keys (e.g. drafts, last-visited family),
+clear them inside `clearUserScopedState` in `auth.tsx`. If you add new
+device-scoped keys, do nothing — they should persist across users.
 
 ### Online/offline UI
 
@@ -247,7 +273,7 @@ When adding migrations: prefer the Supabase MCP `apply_migration` tool. If unava
 - **Picture / file uploads offline**: outbox doesn't handle them; would need expo-file-system to copy picked file to a stable local path before queueing.
 - **Signed-URL cache**: every picture remount calls `createSignedUrl`. A `Map<path, {url, expiresAt}>` would eliminate the per-mount roundtrip.
 - **expo-image swap**: `Image` works fine but `expo-image` has a better disk cache + memory cache. One-file change.
-- **Invite link**: `https://familycal.app/join/<CODE>` is a placeholder. There's no domain yet, no landing page, no universal link. Wire when ready to ship.
+- **Invite link**: `https://ffcal.app/join/<CODE>` is a placeholder. There's no domain yet, no landing page, no universal link. Wire when ready to ship.
 - **Member kick is not symmetric**: an owner can't promote another member to owner. There's only one owner per family by construction. If you need multi-owner, change `family_members.role` semantics.
 - **Empty states** are plain text. Per the design brief, illustrations would help.
 - **App icon / splash** are still the Expo defaults.

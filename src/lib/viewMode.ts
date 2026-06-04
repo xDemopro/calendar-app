@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
-const KEY = 'familycal.viewMode';
+const KEY = 'ffcal.viewMode';
 
 export type CalendarViewMode = 'dots' | 'bars';
 

@@ -39,7 +39,7 @@ export default function JoinFamilyScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <Text style={[type.title1, { color: t.ink }]}>Join a family</Text>
       <Text style={[type.body, { color: t.fgMed }]}>
         Type the invite code shared by a family member.

@@ -1,7 +1,8 @@
+import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AttachmentsSection } from '@/components/AttachmentsSection';
 import { ParticipantsRow } from '@/components/ParticipantsRow';
@@ -15,6 +16,7 @@ import { radius, space, type } from '@/theme/tokens';
 export default function EventDetailScreen() {
   const { id, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const t = useThemeColors();
+  const router = useRouter();
 
   const { data: event, isLoading: loading } = useQuery({
     queryKey: qk.event(eventId ?? ''),
@@ -41,7 +43,26 @@ export default function EventDetailScreen() {
 
   return (
     <Screen scroll>
-      <Stack.Screen options={{ title: event.title }} />
+      <Stack.Screen
+        options={{
+          title: event.title,
+          headerRight: () => (
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/(app)/family/[id]/event/[eventId]/edit',
+                  params: { id: id!, eventId: event.id },
+                })
+              }
+              hitSlop={12}
+              accessibilityLabel="Edit event"
+              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
+            >
+              <Feather name="edit-2" size={20} color={t.accent} />
+            </Pressable>
+          ),
+        }}
+      />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dot }} />
         <Text style={[type.title1, { color: t.ink, flex: 1 }]}>{event.title}</Text>

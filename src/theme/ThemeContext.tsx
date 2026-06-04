@@ -4,7 +4,7 @@ import { Appearance, useColorScheme as useRNColorScheme } from 'react-native';
 
 import { dark, light, type ThemeMode, type ThemePalette } from './tokens';
 
-const STORAGE_KEY = 'familycal.themeMode';
+const STORAGE_KEY = 'ffcal.themeMode';
 
 type ThemeContextValue = {
   mode: ThemeMode; // user's selected mode: system | light | dark

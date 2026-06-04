@@ -173,3 +173,39 @@ export function useUpdateNoteMutation(eventId: string) {
     // outbox handles post-server invalidation
   });
 }
+
+export function useCreateLinkMutation(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { url: string; title?: string }) => {
+      const createdBy = await authedUserId();
+      const clientId = newClientId();
+      const optimistic = {
+        id: clientId,
+        event_id: eventId,
+        kind: 'link' as const,
+        data,
+        created_by: createdBy,
+        created_at: new Date().toISOString(),
+      };
+      qc.setQueryData<any[]>(qk.attachments(eventId), (prev) =>
+        prev ? [...prev, optimistic] : prev,
+      );
+      await enqueue({ kind: 'create_link', clientId, eventId, createdBy, data });
+    },
+    // outbox handles post-server invalidation
+  });
+}
+
+export function useUpdateLinkMutation(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { url: string; title?: string } }) => {
+      qc.setQueryData<any[]>(qk.attachments(eventId), (prev) =>
+        prev ? prev.map((a) => (a.id === id ? { ...a, data } : a)) : prev,
+      );
+      await enqueue({ kind: 'update_link', id, data });
+    },
+    // outbox handles post-server invalidation
+  });
+}

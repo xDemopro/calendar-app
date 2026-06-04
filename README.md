@@ -1,4 +1,4 @@
-# FamilyCal
+# F&F Calendar
 
 A shared calendar app for families, built on Expo (React Native) + Supabase.
 

@@ -7,7 +7,7 @@ import { supabase } from './supabase';
 
 export const BUCKET = 'event-attachments';
 
-export type AttachmentKind = 'note' | 'picture' | 'file';
+export type AttachmentKind = 'note' | 'picture' | 'file' | 'link';
 
 export type NoteData = { title: string; body: string };
 export type PictureData = {
@@ -24,11 +24,32 @@ export type FileData = {
   mime_type: string;
   size_bytes?: number;
 };
+export type LinkData = { url: string; title?: string };
 
 export type Attachment =
   | { id: string; event_id: string; created_by: string; created_at: string; kind: 'note'; data: NoteData }
   | { id: string; event_id: string; created_by: string; created_at: string; kind: 'picture'; data: PictureData }
-  | { id: string; event_id: string; created_by: string; created_at: string; kind: 'file'; data: FileData };
+  | { id: string; event_id: string; created_by: string; created_at: string; kind: 'file'; data: FileData }
+  | { id: string; event_id: string; created_by: string; created_at: string; kind: 'link'; data: LinkData };
+
+// Normalize user input into something Linking.openURL can handle: prepend
+// "https://" if no scheme was typed. Leaves valid schemes alone.
+export function normalizeUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(trimmed)) return trimmed;
+  return 'https://' + trimmed;
+}
+
+// Pull a human-friendly hostname out of a URL for display. Falls back to the
+// raw string if parsing fails (e.g. user typed something garbage).
+export function hostnameFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
 
 export async function listAttachments(eventId: string): Promise<Attachment[]> {
   const { data, error } = await supabase

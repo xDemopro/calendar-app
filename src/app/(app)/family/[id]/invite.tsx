@@ -21,7 +21,7 @@ import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { radius, space, type } from '@/theme/tokens';
 
-const INVITE_BASE = 'https://familycal.app/join';
+const INVITE_BASE = 'https://ffcal.app/join';
 
 export default function InviteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -67,7 +67,7 @@ export default function InviteScreen() {
   async function handleShare() {
     try {
       await Share.share({
-        message: `Join "${family!.name}" on FamilyCal.\n\nCode: ${family!.invite_code}\nLink: ${link}`,
+        message: `Join "${family!.name}" on F&F Calendar.\n\nCode: ${family!.invite_code}\nLink: ${link}`,
       });
     } catch {}
   }
@@ -162,7 +162,7 @@ export default function InviteScreen() {
       </View>
       <Text style={[type.footnote, { color: t.fgLow, marginTop: 6, paddingHorizontal: 4 }]}>
         Anyone you trust with this link can join. They'll need to sign in or create an
-        account on FamilyCal first.
+        account on F&F Calendar first.
       </Text>
 
       {/* Share via OS */}

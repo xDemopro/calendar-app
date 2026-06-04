@@ -29,7 +29,16 @@ export default function SignInScreen() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        // Use the app's deep-link scheme as the post-confirmation redirect.
+        // Until we have a real domain hosting a confirmation page, this routes
+        // the user back into the app after Supabase confirms their email on
+        // the server. Must be in the Supabase Auth redirect-URL allowlist.
+        const emailRedirectTo = Linking.createURL('/');
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo },
+        });
         if (error) throw error;
         Alert.alert('Check your email', 'We sent you a confirmation link.');
         setMode('signin');
@@ -109,7 +118,7 @@ export default function SignInScreen() {
           >
             <Text style={{ fontSize: 26 }}>🏠</Text>
           </View>
-          <Text style={[type.display, { color: t.ink }]}>FamilyCal</Text>
+          <Text style={[type.display, { color: t.ink }]}>F&F Calendar</Text>
         </View>
         <Text style={[type.callout, { color: t.fgMed, marginTop: space.xs }]}>
           A shared calendar for the people you care about.

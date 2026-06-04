@@ -12,6 +12,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { OfflineBanner } from '@/components/OfflineBanner';
@@ -94,17 +95,19 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 * 7 }}
-    >
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <ThemedShell />
-          </AuthProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </PersistQueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 * 7 }}
+      >
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <ThemedShell />
+            </AuthProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </PersistQueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

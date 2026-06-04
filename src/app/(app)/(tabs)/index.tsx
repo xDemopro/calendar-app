@@ -153,7 +153,13 @@ export default function FamiliesScreen() {
         <FlatList
           data={families}
           keyExtractor={(f) => f.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: space.xxl * 2, gap: 12 }}
+          // flex:1 + contentContainerStyle.flexGrow:1 make the list fill the
+          // viewport even when there are zero or few families, so the
+          // RefreshControl works from anywhere below the top bar (not just on
+          // top of an item).
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: space.xxl * 2, gap: 12, flexGrow: 1 }}
+          alwaysBounceVertical
           refreshControl={
             <RefreshControl
               tintColor={t.accent}

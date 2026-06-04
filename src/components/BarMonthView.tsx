@@ -1,10 +1,14 @@
+import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { addMonths, format, isSameDay, isSameMonth, parseISO, startOfDay } from 'date-fns';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Animated,
   Dimensions,
-  FlatList,
+  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,27 +16,26 @@ import {
   Text,
   View,
   type DimensionValue,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   type ViewStyle,
 } from 'react-native';
+import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 
 import { UserAvatar } from './UserAvatar';
-import { barBgForEvent, colorForEvent } from '@/lib/eventColor';
+import { barBgForEvent, buildEventColorMap, colorForEvent } from '@/lib/eventColor';
 import { listEventsWithParticipants, type EventWithParticipants } from '@/lib/queries';
 import { qk } from '@/lib/queryKeys';
 import { useThemeColors } from '@/theme/ThemeContext';
 import { FONT_FAMILY_BY_WEIGHT, radius, space, type } from '@/theme/tokens';
+import type { EventColor } from '@/theme/tokens';
 
 const SCREEN = Dimensions.get('window');
-const PAST_MONTHS = 24;
-const FUTURE_MONTHS = 24;
-const TOTAL_PAGES = PAST_MONTHS + 1 + FUTURE_MONTHS;
-const INITIAL_INDEX = PAST_MONTHS;
 
 const LANE_HEIGHT = 26;
 const LANE_GAP = 3;
-const MAX_LANES = 3;
+// Day-number row height (24px cell + ~2px breathing room before bars).
+const DAYNUMS_HEIGHT = 26;
+// Padding under the last bar so it doesn't kiss the week divider.
+const BARS_BOTTOM_PAD = 6;
 const BAR_RADIUS = radius.sm;
 
 // ---------- Date helpers (Monday-start week) ----------
@@ -52,10 +55,6 @@ function monthGridStart(month: Date): Date {
   return startOfDay(addDays(first, -dayOfWeekMondayStart(first)));
 }
 
-function monthPageDate(referenceMonth: Date, index: number): Date {
-  return addMonths(referenceMonth, index - INITIAL_INDEX);
-}
-
 function effectiveEnd(e: EventWithParticipants): Date {
   return e.ends_at ? parseISO(e.ends_at) : parseISO(e.starts_at);
 }
@@ -72,7 +71,7 @@ type WeekBar = {
 
 function packWeek(events: EventWithParticipants[], weekStart: Date): {
   bars: WeekBar[];
-  overflow: number[];
+  lanesUsed: number;
 } {
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const weekEnd = addDays(weekStart, 7);
@@ -90,9 +89,10 @@ function packWeek(events: EventWithParticipants[], weekStart: Date): {
     return db - da;
   });
 
-  const laneOccupiedThrough: number[] = new Array(MAX_LANES).fill(-1);
+  // Lanes grow as needed — no hard cap. The week row's height adapts so the
+  // parent ScrollView can scroll if a week ends up taller than the viewport.
+  const laneOccupiedThrough: number[] = [];
   const bars: WeekBar[] = [];
-  const overflowPerCol = new Array(7).fill(0);
 
   for (const event of overlapping) {
     const start = startOfDay(parseISO(event.starts_at));
@@ -104,22 +104,17 @@ function packWeek(events: EventWithParticipants[], weekStart: Date): {
     if (startCol > endCol) continue;
     const eventStartsThisWeek = start >= weekStart && start < weekEnd;
 
-    let lane = -1;
-    for (let l = 0; l < MAX_LANES; l++) {
-      if (laneOccupiedThrough[l] < startCol) {
-        lane = l;
-        break;
-      }
-    }
+    let lane = laneOccupiedThrough.findIndex((occ) => occ < startCol);
     if (lane === -1) {
-      for (let c = startCol; c <= endCol; c++) overflowPerCol[c]++;
-      continue;
+      lane = laneOccupiedThrough.length;
+      laneOccupiedThrough.push(endCol);
+    } else {
+      laneOccupiedThrough[lane] = endCol;
     }
-    laneOccupiedThrough[lane] = endCol;
     bars.push({ event, startCol, endCol, lane, isFirstSegment: eventStartsThisWeek });
   }
 
-  return { bars, overflow: overflowPerCol };
+  return { bars, lanesUsed: laneOccupiedThrough.length };
 }
 
 // ---------- Components ----------
@@ -138,67 +133,185 @@ export function BarMonthView({
   onRefresh?: () => void;
 }) {
   const t = useThemeColors();
-  const listRef = useRef<FlatList>(null);
-  const [pageWidth, setPageWidth] = useState<number>(SCREEN.width);
-  const [currentIndex, setCurrentIndex] = useState<number>(INITIAL_INDEX);
+  const [month, setMonth] = useState<Date>(referenceMonth);
+  const screenWidth = SCREEN.width;
+  // Native gesture for the inner MonthPage's ScrollView. Our Pan claims
+  // simultaneousWithExternalGesture(scrollGesture) so it doesn't block
+  // vertical pulls / pull-to-refresh.
+  const scrollGesture = useMemo<GestureType>(() => Gesture.Native(), []);
 
-  const onLayout = useCallback((e: { nativeEvent: { layout: { width: number } } }) => {
-    setPageWidth(e.nativeEvent.layout.width);
-  }, []);
+  // RNGH-driven horizontal swipe with animated translate, same pattern as
+  // the dots calendar's month swipe.
+  const translateX = useRef(new Animated.Value(0)).current;
+  const animatingRef = useRef(false);
+  const pendingDirRef = useRef<1 | -1 | null>(null);
 
-  const onMomentumScrollEnd = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const idx = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
-      if (idx !== currentIndex) {
-        setCurrentIndex(idx);
-        onMonthChange?.(monthPageDate(referenceMonth, idx));
+  function applyPending() {
+    const dir = pendingDirRef.current;
+    if (dir == null) return;
+    setMonth((prev) => {
+      const next = addMonths(prev, dir);
+      onMonthChange?.(next);
+      return next;
+    });
+    pendingDirRef.current = null;
+  }
+
+  function interrupt() {
+    translateX.stopAnimation();
+    applyPending();
+    translateX.setValue(0);
+    animatingRef.current = false;
+  }
+
+  function complete(dir: 1 | -1) {
+    if (animatingRef.current) interrupt();
+    animatingRef.current = true;
+    pendingDirRef.current = dir;
+    Haptics.selectionAsync().catch(() => {});
+    Animated.timing(translateX, {
+      toValue: -dir * screenWidth,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      applyPending();
+      translateX.setValue(dir * screenWidth);
+      Animated.timing(translateX, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished: f2 }) => {
+        if (f2) animatingRef.current = false;
+      });
+    });
+  }
+
+  function cancel() {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+      friction: 9,
+      tension: 90,
+    }).start();
+  }
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-5, 5])
+    .simultaneousWithExternalGesture(scrollGesture)
+    .runOnJS(true)
+    .onStart(() => {
+      if (animatingRef.current) interrupt();
+    })
+    .onUpdate((e) => {
+      const max = screenWidth * 0.55;
+      let v = e.translationX;
+      if (v > max) v = max + (v - max) * 0.35;
+      else if (v < -max) v = -max + (v + max) * 0.35;
+      translateX.setValue(v);
+    })
+    .onEnd((e) => {
+      const enoughDistance = Math.abs(e.translationX) > 25;
+      const enoughVelocity = Math.abs(e.velocityX) > 250;
+      if (!enoughDistance && !enoughVelocity) {
+        cancel();
+        return;
       }
-    },
-    [pageWidth, currentIndex, referenceMonth, onMonthChange],
-  );
-
-  const data = useMemo(() => Array.from({ length: TOTAL_PAGES }, (_, i) => i), []);
+      complete(e.translationX < 0 ? 1 : -1);
+    })
+    .onFinalize((_, success) => {
+      if (!success) cancel();
+    });
 
   return (
-    <View style={{ flex: 1 }} onLayout={onLayout}>
-      <FlatList
-        ref={listRef}
-        data={data}
-        keyExtractor={(i) => String(i)}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        initialScrollIndex={INITIAL_INDEX}
-        getItemLayout={(_, index) => ({ length: pageWidth, offset: pageWidth * index, index })}
-        onMomentumScrollEnd={onMomentumScrollEnd}
-        windowSize={3}
-        initialNumToRender={1}
-        maxToRenderPerBatch={1}
-        removeClippedSubviews
-        renderItem={({ item: index }) => (
-          <View style={{ width: pageWidth }}>
-            <MonthPage
-              familyId={familyId}
-              month={monthPageDate(referenceMonth, index)}
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              refreshTint={t.accent}
-            />
-          </View>
-        )}
-      />
-    </View>
+    <GestureDetector gesture={swipeGesture}>
+      <Animated.View
+        style={{ flex: 1, backgroundColor: t.bg, transform: [{ translateX }] }}
+        collapsable={false}
+      >
+        <MonthPage
+          familyId={familyId}
+          month={month}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          refreshTint={t.accent}
+          onPrev={() => complete(-1)}
+          onNext={() => complete(1)}
+          scrollGesture={scrollGesture}
+        />
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
-function MonthHeader({ month }: { month: Date }) {
+function MonthHeader({
+  month,
+  refreshing,
+  onRefresh,
+  onPrev,
+  onNext,
+}: {
+  month: Date;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+}) {
   const t = useThemeColors();
   return (
-    <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm }}>
-      <Text>
-        <Text style={[type.title1, { color: t.ink }]}>{format(month, 'LLLL')}</Text>
-        <Text style={[type.title1, { color: t.fgLow }]}> {format(month, 'yyyy')}</Text>
-      </Text>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: space.lg,
+        paddingTop: space.md,
+        paddingBottom: space.sm,
+      }}
+    >
+      <Pressable
+        onPress={onPrev}
+        hitSlop={14}
+        accessibilityLabel="Previous month"
+        style={({ pressed }) => ({ opacity: pressed ? 0.4 : 1, padding: 4 })}
+        disabled={!onPrev}
+      >
+        <Feather name="chevron-left" size={26} color={onPrev ? t.accent : 'transparent'} />
+      </Pressable>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Text>
+          <Text style={[type.title1, { color: t.ink }]}>{format(month, 'LLLL')}</Text>
+          <Text style={[type.title1, { color: t.fgLow }]}> {format(month, 'yyyy')}</Text>
+        </Text>
+        {onRefresh ? (
+          <Pressable
+            onPress={onRefresh}
+            hitSlop={12}
+            accessibilityLabel="Refresh"
+            disabled={!!refreshing}
+            style={({ pressed }) => ({ opacity: pressed || refreshing ? 0.4 : 1, padding: 4 })}
+          >
+            {refreshing ? (
+              <ActivityIndicator color={t.accent} size="small" />
+            ) : (
+              <Feather name="refresh-cw" size={20} color={t.accent} />
+            )}
+          </Pressable>
+        ) : null}
+      </View>
+
+      <Pressable
+        onPress={onNext}
+        hitSlop={14}
+        accessibilityLabel="Next month"
+        style={({ pressed }) => ({ opacity: pressed ? 0.4 : 1, padding: 4 })}
+        disabled={!onNext}
+      >
+        <Feather name="chevron-right" size={26} color={onNext ? t.accent : 'transparent'} />
+      </Pressable>
     </View>
   );
 }
@@ -209,12 +322,18 @@ function MonthPage({
   refreshing,
   onRefresh,
   refreshTint,
+  onPrev,
+  onNext,
+  scrollGesture,
 }: {
   familyId: string;
   month: Date;
   refreshing?: boolean;
   onRefresh?: () => void;
   refreshTint: string;
+  onPrev?: () => void;
+  onNext?: () => void;
+  scrollGesture: GestureType;
 }) {
   const t = useThemeColors();
   void refreshing; void onRefresh; void refreshTint;
@@ -235,22 +354,12 @@ function MonthPage({
     return Array.from({ length: weekCount }, (_, i) => addDays(start, i * 7));
   }, [month]);
 
+  // De-duplicated color map for all events in this month grid.
+  const colorMap = useMemo(() => buildEventColorMap(events ?? []), [events]);
+
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
-      <MonthHeader month={month} />
-      <View style={[styles.weekdayHeader, { borderBottomColor: t.border }]}>
-        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
-          <Text
-            key={i}
-            style={[
-              type.caption,
-              { color: i >= 5 ? t.fgLow : t.fgMed, flex: 1, textAlign: 'center' },
-            ]}
-          >
-            {d}
-          </Text>
-        ))}
-      </View>
+      <GestureDetector gesture={scrollGesture}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ flexGrow: 1 }}
@@ -268,15 +377,37 @@ function MonthPage({
           ) : undefined
         }
       >
+        <MonthHeader
+          month={month}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
+        <View style={[styles.weekdayHeader, { borderBottomColor: t.border, backgroundColor: t.bg }]}>
+          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+            <Text
+              key={i}
+              style={[
+                type.caption,
+                { color: i >= 5 ? t.fgLow : t.fgMed, flex: 1, textAlign: 'center' },
+              ]}
+            >
+              {d}
+            </Text>
+          ))}
+        </View>
         {weeks.map((weekStart, i) => (
           <WeekRow
             key={i}
             weekStart={weekStart}
             month={month}
             events={events ?? []}
+            colorMap={colorMap}
           />
         ))}
       </ScrollView>
+      </GestureDetector>
     </View>
   );
 }
@@ -285,21 +416,28 @@ function WeekRow({
   weekStart,
   month,
   events,
+  colorMap,
 }: {
   weekStart: Date;
   month: Date;
   events: EventWithParticipants[];
+  colorMap: Map<string, EventColor>;
 }) {
   const router = useRouter();
   const t = useThemeColors();
-  const { bars, overflow } = useMemo(() => packWeek(events, weekStart), [events, weekStart]);
+  const { bars, lanesUsed } = useMemo(() => packWeek(events, weekStart), [events, weekStart]);
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
   );
 
+  // Grow the row's height to fit every lane — no overflow, no "+N", the
+  // outer ScrollView handles tall weeks. Minimum keeps short weeks compact.
+  const barsHeight = lanesUsed * (LANE_HEIGHT + LANE_GAP);
+  const rowMinHeight = DAYNUMS_HEIGHT + Math.max(barsHeight, 12) + BARS_BOTTOM_PAD;
+
   return (
-    <View style={[styles.weekRow, { borderBottomColor: t.border }]}>
+    <View style={[styles.weekRow, { borderBottomColor: t.border, minHeight: rowMinHeight }]}>
       <View style={{ flexDirection: 'row' }}>
         {days.map((d, i) => {
           const inMonth = isSameMonth(d, month);
@@ -340,6 +478,7 @@ function WeekRow({
             key={`${bar.event.id}-${i}`}
             bar={bar}
             scheme={t.name}
+            colorMap={colorMap}
             onPress={() => {
               const familyId = bar.event.family_id;
               router.push({
@@ -349,22 +488,6 @@ function WeekRow({
             }}
           />
         ))}
-        {overflow.map((n, i) =>
-          n > 0 ? (
-            <View
-              key={`ov-${i}`}
-              style={{
-                position: 'absolute',
-                left: (`${(i / 7) * 100}%`) as DimensionValue,
-                bottom: 2,
-                width: (`${100 / 7}%`) as DimensionValue,
-                alignItems: 'center',
-              }}
-            >
-              <Text style={[type.micro, { color: t.fgLow }]}>+{n}</Text>
-            </View>
-          ) : null,
-        )}
       </View>
     </View>
   );
@@ -373,18 +496,20 @@ function WeekRow({
 function BarItem({
   bar,
   scheme,
+  colorMap,
   onPress,
 }: {
   bar: WeekBar;
   scheme: 'light' | 'dark';
+  colorMap: Map<string, EventColor>;
   onPress: () => void;
 }) {
   const span = bar.endCol - bar.startCol + 1;
   const left = `${(bar.startCol / 7) * 100}%` as DimensionValue;
   const width = `${(span / 7) * 100}%` as DimensionValue;
   const top = bar.lane * (LANE_HEIGHT + LANE_GAP);
-  const solid = colorForEvent(bar.event.id, scheme);
-  const bg = barBgForEvent(bar.event.id, scheme);
+  const solid = colorForEvent(bar.event.id, scheme, colorMap);
+  const bg = barBgForEvent(bar.event.id, scheme, colorMap);
 
   const tinted: ViewStyle = {
     position: 'absolute',

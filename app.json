@@ -1,19 +1,22 @@
 {
   "expo": {
-    "name": "FamilyCal",
-    "slug": "familycal",
+    "name": "F&F Calendar",
+    "slug": "ffcal",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "familycal",
+    "scheme": "ffcal",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.familycal.app",
-      "usesAppleSignIn": true
+      "bundleIdentifier": "com.alga.ffcal",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
-      "package": "com.familycal.app",
+      "package": "com.alga.ffcal",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -33,10 +36,12 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+          "backgroundColor": "#F3ECDE",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#171411"
           }
         }
       ],
@@ -46,6 +51,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1d56a7bb-ad55-4147-879a-7c1101b1107e"
+      }
+    },
+    "owner": "demopro"
   }
 }

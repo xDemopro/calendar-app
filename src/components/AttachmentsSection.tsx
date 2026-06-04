@@ -18,6 +18,7 @@ import {
   addPictureFromLibrary,
   createSignedUrl,
   deleteAttachment,
+  hostnameFromUrl,
   listAttachments,
   type Attachment,
 } from '@/lib/attachments';
@@ -80,6 +81,14 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
           }
         },
       },
+      {
+        text: 'Link',
+        onPress: () =>
+          router.push({
+            pathname: '/(app)/family/[id]/event/[eventId]/link',
+            params: { id: familyId, eventId },
+          }),
+      },
       { text: 'Cancel', style: 'cancel' },
     ]);
   }
@@ -93,6 +102,17 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
         onPress: () =>
           router.push({
             pathname: '/(app)/family/[id]/event/[eventId]/note',
+            params: { id: familyId, eventId, attachmentId: att.id },
+          }),
+      });
+    }
+    if (att.kind === 'link') {
+      actions.push({
+        title: 'Edit',
+        icon: 'edit-2',
+        onPress: () =>
+          router.push({
+            pathname: '/(app)/family/[id]/event/[eventId]/link',
             params: { id: familyId, eventId, attachmentId: att.id },
           }),
       });
@@ -151,6 +171,7 @@ export function AttachmentsSection({ familyId, eventId }: { familyId: string; ev
 function kindLabel(att: Attachment): string {
   if (att.kind === 'note') return 'Note';
   if (att.kind === 'picture') return 'Picture';
+  if (att.kind === 'link') return 'Link';
   return 'File';
 }
 
@@ -159,6 +180,14 @@ async function handleTap(att: Attachment) {
     try {
       const url = await createSignedUrl((att.data as any).path);
       await Linking.openURL(url);
+    } catch (e: any) {
+      Alert.alert('Could not open', e.message);
+    }
+    return;
+  }
+  if (att.kind === 'link') {
+    try {
+      await Linking.openURL(att.data.url);
     } catch (e: any) {
       Alert.alert('Could not open', e.message);
     }
@@ -188,6 +217,27 @@ function AttachmentCard({ attachment }: { attachment: Attachment }) {
   }
   if (attachment.kind === 'picture') {
     return <PictureCard attachment={attachment} />;
+  }
+  if (attachment.kind === 'link') {
+    const host = hostnameFromUrl(attachment.data.url);
+    return (
+      <View
+        style={[
+          styles.fileCard,
+          { backgroundColor: t.bgRaised, borderColor: t.border },
+        ]}
+      >
+        <Text style={{ fontSize: 26 }}>🔗</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[type.headline, { color: t.ink }]} numberOfLines={1}>
+            {attachment.data.title || host}
+          </Text>
+          <Text style={[type.footnote, { color: t.fgLow }]} numberOfLines={1}>
+            {attachment.data.title ? host : attachment.data.url}
+          </Text>
+        </View>
+      </View>
+    );
   }
   return (
     <View

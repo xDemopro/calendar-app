@@ -1,6 +1,6 @@
-# FamilyCal — Design brief
+# F&F Calendar — Design brief
 
-I'm working on a React Native app called **FamilyCal**: a shared calendar where every member of a family can see, add, and edit each other's events, and attach rich content to events (notes, photos, eventually hotel bookings and boarding passes). It's already functionally complete and runs on iOS/Android via Expo. Now I want a serious visual + interaction design pass before I write the polished frontend.
+I'm working on a React Native app called **F&F Calendar** (short form: "F&F", slug: `ffcal`): a shared calendar where every member of a family can see, add, and edit each other's events, and attach rich content to events (notes, photos, eventually hotel bookings and boarding passes). It's already functionally complete and runs on iOS/Android via Expo. Now I want a serious visual + interaction design pass before I write the polished frontend.
 
 Please review every screen below, propose a refined visual system (colors, type, spacing, iconography, motion), and produce screen-by-screen mockups or wireframes that I can hand back to my engineer. Where the current implementation feels generic or unfinished, propose something better — don't preserve the current look for its own sake.
 
@@ -27,7 +27,7 @@ Please review every screen below, propose a refined visual system (colors, type,
 - Typography is system default. Spacing tokens are 4 / 8 / 12 / 16 / 24 / 32. Radius tokens are 6 / 10 / 16 / pill.
 
 **What I want from you**:
-- A real visual identity. Logotype/wordmark for "FamilyCal", a 1024×1024 app icon, a launch screen.
+- A real visual identity. Logotype/wordmark for "F&F Calendar" (or short "F&F"), a 1024×1024 app icon, a launch screen.
 - A typographic scale (display / title / body / caption / etc.) — feel free to suggest a custom font pairing.
 - A refined color system with named tokens: backgrounds (default, elevated, raised), foreground (high/medium/low contrast), accents, status (success/warning/danger), and a dedicated palette for event tinting.
 - Iconography — currently using Unicode emoji as tab icons (👪, ⚙). Replace with a coherent icon set.

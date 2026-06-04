@@ -38,7 +38,7 @@ export default function NewFamilyScreen() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <Text style={[type.title1, { color: t.ink }]}>Create a family</Text>
       <Text style={[type.body, { color: t.fgMed }]}>
         After creating, share the invite code with your family so they can join.
